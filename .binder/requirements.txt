@@ -1,1 +1,6 @@
 ipyfilechooser==0.6.0
+plotly>=5
+folium>=0.16
+branca>=0.7
+requests>=2
+beautifulsoup4>=4

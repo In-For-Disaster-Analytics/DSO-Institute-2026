@@ -31,3 +31,14 @@ Temporary Items
 
 # End of https://www.toptal.com/developers/gitignore/api/osx
 
+# Local diagnostic artifacts
+logs/
+.ipynb_checkpoints/
+
+# Generated Folium compaction data artifacts
+Day-2/Folium/data_files/
+Day-2/Folium/csv_files/
+Day-2/Folium/combined_site*.csv
+Day-2/Folium/Texas_County_Boundaries_Detailed.geojson
+Day-2/Folium/compaction_sites.csv
+*.pyc
