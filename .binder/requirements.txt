@@ -4,3 +4,12 @@ folium>=0.16
 branca>=0.7
 requests>=2
 beautifulsoup4>=4
+nltk
+spacy
+scikit-learn
+networkx
+python-docx
+pillow
+pytesseract
+en-core-web-sm
+pypdf

@@ -161,6 +161,7 @@ function create_jupyter_configuration {
 
 function run_jupyter() {
 	conda activate ${COOKBOOK_CONDA_ENV}
+	export NLTK_DATA="${HOME}/nltk_data"
 	NB_SERVERDIR=$HOME/.jupyter
 	JUPYTER_SERVER_APP="ServerApp"
 	JUPYTER_BIN="jupyter-lab"
@@ -236,6 +237,27 @@ function conda_environment_exists() {
 	conda env list | grep "${COOKBOOK_CONDA_ENV}"
 }
 
+function configure_nltk_data() {
+	export NLTK_DATA="${HOME}/nltk_data"
+	mkdir -p "${NLTK_DATA}"
+
+	python - <<'PY'
+import os
+import nltk
+
+nltk_data_dir = os.environ["NLTK_DATA"]
+packages = [
+    "punkt",
+    "punkt_tab",
+    "stopwords",
+    "averaged_perceptron_tagger",
+]
+
+for package in packages:
+    nltk.download(package, download_dir=nltk_data_dir, quiet=True)
+PY
+}
+
 function create_conda_environment() {
 	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml ]; then
 		conda env create -n ${COOKBOOK_CONDA_ENV} -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml --yes
@@ -247,6 +269,7 @@ function create_conda_environment() {
 	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt ]; then
 		pip install --no-cache-dir -r $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt
 	fi
+	configure_nltk_data
 	python -m ipykernel install --user --name "${COOKBOOK_CONDA_ENV}" --display-name "Python (${COOKBOOK_CONDA_ENV})"
 }
 

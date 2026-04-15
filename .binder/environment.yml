@@ -33,3 +33,11 @@ dependencies:
   - vtk
   - pyvista
   - ckanapi
+  - networkx
+  - scikit-learn
+  - spacy
+  - python-docx
+  - pillow
+  - pytesseract
+  - tesseract
+  - pypdf

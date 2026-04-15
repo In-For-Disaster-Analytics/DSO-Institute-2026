@@ -42,3 +42,9 @@ Day-2/Folium/combined_site*.csv
 Day-2/Folium/Texas_County_Boundaries_Detailed.geojson
 Day-2/Folium/compaction_sites.csv
 *.pyc
+*.html
+/Day-3/Morning/data
+/Day-3/Morning/outputs
+Day-3/Morning/semantic_bridge_NNA_StreamlinedV6_ClimateSetxMarch31.ipynb
+Day-3/Morning/semantic_bridge_NNA_StreamlinedV6_Jan12.ipynb
+/scripts
