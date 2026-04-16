@@ -7,11 +7,14 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import re
+from typing import Any
+from urllib.parse import unquote
 
 import networkx as nx
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 from docx import Document
 from nltk.tokenize import sent_tokenize
 from PIL import Image
@@ -23,6 +26,11 @@ try:
     import pytesseract
 except ImportError:  # pragma: no cover - optional dependency at runtime
     pytesseract = None
+
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    OpenAI = None
 
 from semantic_bridge_defaults import (
     DEFAULT_COMPONENT_PATTERNS,
@@ -212,6 +220,122 @@ def discover_topics(
     }
 
 
+def topic_display_name(topic_info: dict[str, Any]) -> str:
+    return topic_info.get("human_label") or topic_info["label"]
+
+
+def _topic_context(
+    topic_id: str,
+    topic_info: dict[str, Any],
+    doc_topic_dist,
+    doc_names: list[str],
+    documents: dict[str, str],
+    top_document_count: int = 3,
+    snippet_chars: int = 350,
+) -> dict[str, Any]:
+    topic_index = int(topic_id.split()[1]) - 1
+    ranked_indices = doc_topic_dist[:, topic_index].argsort()[::-1][:top_document_count]
+    top_documents = []
+    for idx in ranked_indices:
+        doc_name = doc_names[idx]
+        snippet = documents[doc_name][:snippet_chars].replace("\n", " ").strip()
+        top_documents.append(
+            {
+                "document": Path(doc_name).stem,
+                "coverage": float(doc_topic_dist[idx, topic_index]),
+                "snippet": snippet,
+            }
+        )
+    return {
+        "topic": topic_id,
+        "keywords": topic_info["keywords"],
+        "top_documents": top_documents,
+    }
+
+
+def _parse_json_response(content: str) -> dict[str, str]:
+    cleaned = content.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", " ", cleaned)
+
+    candidates = [cleaned]
+    object_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if object_match:
+        candidates.append(object_match.group(0))
+
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate, strict=False)
+            return {
+                "label": str(payload.get("label", "")).strip(),
+                "description": str(payload.get("description", "")).strip(),
+            }
+        except json.JSONDecodeError:
+            continue
+
+    label_match = re.search(r'"label"\s*:\s*"((?:[^"\\]|\\.)*)"', cleaned, re.DOTALL)
+    description_match = re.search(r'"description"\s*:\s*"((?:[^"\\]|\\.)*)"', cleaned, re.DOTALL)
+    if label_match or description_match:
+        return {
+            "label": bytes((label_match.group(1) if label_match else ""), "utf-8").decode("unicode_escape").strip(),
+            "description": bytes(
+                (description_match.group(1) if description_match else ""),
+                "utf-8",
+            ).decode("unicode_escape").strip(),
+        }
+
+    # Final fallback: treat the response as plain text and preserve it as the description.
+    one_line = " ".join(cleaned.split())
+    return {
+        "label": "",
+        "description": one_line,
+    }
+
+
+def relabel_topics_with_llm(
+    topics_info: dict[str, dict[str, Any]],
+    doc_topic_dist,
+    doc_names: list[str],
+    documents: dict[str, str],
+    model: str,
+    api_key: str,
+    base_url: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    if OpenAI is None:
+        raise RuntimeError("openai is not installed in this environment")
+    client = OpenAI(api_key=api_key, base_url=base_url or None)
+    updated_topics = deepcopy(topics_info)
+
+    for topic_id, topic_info in updated_topics.items():
+        context = _topic_context(topic_id, topic_info, doc_topic_dist, doc_names, documents)
+        prompt = (
+            "You are helping label topic-model outputs for a tutorial notebook.\n"
+            "Given topic keywords and short excerpts from high-coverage documents, "
+            "write a concise, human-readable topic label and a one-sentence description.\n"
+            "Return JSON with keys 'label' and 'description'.\n"
+            "Keep the label under 6 words. Avoid repeating the raw keyword list."
+        )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps(context, indent=2),
+                },
+            ],
+            temperature=0.2,
+        )
+        content = response.choices[0].message.content or ""
+        parsed = _parse_json_response(content)
+        updated_topics[topic_id]["human_label"] = f"{topic_id}: {parsed['label']}" if parsed["label"] else topic_info["label"]
+        updated_topics[topic_id]["description"] = parsed["description"]
+
+    return updated_topics
+
+
 def build_topic_summary(topics_info: dict[str, dict[str, object]], doc_topic_dist, top_words_display: int) -> pd.DataFrame:
     summary_data = []
     for topic_num, info in topics_info.items():
@@ -219,6 +343,8 @@ def build_topic_summary(topics_info: dict[str, dict[str, object]], doc_topic_dis
         summary_data.append(
             {
                 "Topic": topic_num,
+                "Label": topic_display_name(info),
+                "Description": info.get("description", ""),
                 "Top Keywords": ", ".join(info["keywords"][:top_words_display]),
                 "Avg Coverage": f"{doc_topic_dist[:, topic_index].mean():.1%}",
             }
@@ -241,16 +367,18 @@ def plot_topic_distribution(
     fig = go.Figure()
     for topic_num in topic_df.columns:
         topic_info = topics_info[topic_num]
+        display_name = topic_display_name(topic_info)
         hover_text = [
-            f"{topic_info['label']}<br>"
+            f"{display_name}<br>"
             f"Document: {doc}<br>"
             f"Proportion: {val:.1%}<br>"
             f"Keywords: {', '.join(topic_info['keywords'][:6])}"
+            + (f"<br>Description: {topic_info['description']}" if topic_info.get("description") else "")
             for doc, val in zip(topic_df.index, topic_df[topic_num])
         ]
         fig.add_trace(
             go.Bar(
-                name=topic_info["label"],
+                name=display_name,
                 x=topic_df.index,
                 y=topic_df[topic_num],
                 text=[f"{val:.1%}" for val in topic_df[topic_num]],
@@ -284,6 +412,381 @@ def default_science_backbone() -> dict[str, list[str]]:
 
 def default_svo_vocabulary() -> dict[str, dict[str, object]]:
     return deepcopy(DEFAULT_SVO_VOCABULARY)
+
+
+def _coerce_string_list(value: Any) -> list[str]:
+    if isinstance(value, str) and value.strip():
+        normalized = value.strip()
+        if normalized.startswith("http"):
+            normalized = unquote(normalized.rstrip("/").split("/")[-1])
+        return [normalized]
+    if isinstance(value, list):
+        values = []
+        for item in value:
+            values.extend(_coerce_string_list(item))
+        return values
+    if isinstance(value, dict):
+        for key in ("label", "name", "value", "id"):
+            nested = value.get(key)
+            values = _coerce_string_list(nested)
+            if values:
+                return values
+    return []
+
+
+def _first_nonempty(record: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = record.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        values = _coerce_string_list(value)
+        if values:
+            return values[0]
+    return ""
+
+
+def _slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+
+
+def _humanize_identifier(text: str) -> str:
+    cleaned = text.replace("_", " ").replace("~", " ").strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    if cleaned.isupper():
+        return cleaned.title()
+    return cleaned
+
+
+def _infer_domain_from_standard_name(standard_name: str, description: str = "") -> str:
+    reference_text = f"{standard_name} {description}".upper()
+    domain_rules = [
+        ("Hydrology", ["SURFACE WATER", "GROUNDWATER", "RIVER", "DISCHARGE", "RUNOFF", "STREAM", "AQUIFER"]),
+        ("Atmospheric Science", ["ATMOSPHERE", "AIR", "HUMIDITY", "PRECIPITATION", "RAINFALL", "TEMPERATURE", "WIND"]),
+        ("Soil Science", ["SOIL", "STOMATAL", "HYDRAULIC CONDUCTIVITY", "POROSITY", "FIELD CAPACITY"]),
+        ("Agriculture", ["CROP", "BIOMASS", "GRAIN", "FORAGE", "PLANT", "HARVEST", "RESIDUE"]),
+        ("Oceanography", ["SEA", "OCEAN", "TIDE", "SALINITY", "ESTUARY", "COASTAL"]),
+        ("Ecology", ["VEGETATION", "CANOPY", "ROOT", "LEAF", "ECOSYSTEM"]),
+        ("Land Systems", ["LAND", "AREA", "USE", "ALLOCATION"]),
+    ]
+    for domain, markers in domain_rules:
+        if any(marker in reference_text for marker in markers):
+            return domain
+    return "General Science"
+
+
+def _keyword_candidates(*values: str) -> list[str]:
+    keywords = []
+    seen = set()
+    for value in values:
+        if not value:
+            continue
+        for candidate in re.split(r"[,;/]|(?:\s+-\s+)", value):
+            cleaned = " ".join(candidate.lower().replace("_", " ").split())
+            if len(cleaned) < 3:
+                continue
+            if cleaned not in seen:
+                seen.add(cleaned)
+                keywords.append(cleaned)
+            for token in cleaned.split():
+                if len(token) >= 4 and token not in seen:
+                    seen.add(token)
+                    keywords.append(token)
+    return keywords[:12]
+
+
+def _normalize_mint_variable(record: dict[str, Any]) -> tuple[str, dict[str, object]]:
+    long_name = _first_nonempty(record, "hasLongName", "long_name", "longName")
+    short_name = _first_nonempty(record, "hasShortName", "short_name", "shortName")
+    display_name = _first_nonempty(
+        record,
+        "hasLongName",
+        "long_name",
+        "longName",
+        "label",
+        "name",
+        "variable_name",
+        "variableName",
+        "standard_variable",
+        "standardVariable",
+    )
+    standard_name = _first_nonempty(
+        record,
+        "hasStandardVariable",
+        "standard_name",
+        "standardName",
+        "standard_variable",
+        "standardVariable",
+        "ontology_name",
+        "ontologyName",
+    ) or display_name
+    units = _first_nonempty(record, "usesUnit", "units", "unit", "unit_names", "unitNames") or "unknown"
+    description = _first_nonempty(record, "description", "definition", "summary")
+    domain = _first_nonempty(record, "domain", "category", "theme", "realm")
+    aliases = (
+        _coerce_string_list(record.get("aliases"))
+        + _coerce_string_list(record.get("synonyms"))
+        + _coerce_string_list(record.get("hasShortName"))
+        + _coerce_string_list(record.get("label"))
+    )
+    key_name = _slugify(display_name or standard_name or _first_nonempty(record, "id", "@id") or "mint_variable")
+    human_label = _humanize_identifier(display_name or standard_name or key_name)
+    human_standard_name = _humanize_identifier(standard_name)
+    inferred_domain = _infer_domain_from_standard_name(human_standard_name, description)
+    keywords = _keyword_candidates(human_label, short_name, human_standard_name, description, *aliases)
+    return key_name, {
+        "standard_name": human_standard_name,
+        "units": _humanize_identifier(units),
+        "data_source": "MINT variablepresentations API",
+        "keywords": keywords or [key_name.replace("_", " ")],
+        "domain": domain or inferred_domain,
+        "label": human_label,
+        "description": description,
+        "short_name": short_name,
+        "mint_id": _first_nonempty(record, "id", "@id"),
+    }
+
+
+def _extract_records(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        for key in ("items", "results", "data", "variablepresentations", "variablePresentations"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def fetch_mint_svo_vocabulary(
+    base_url: str,
+    username: str = "mint@isi.edu",
+    per_page: int = 200,
+    max_pages: int = 3,
+    timeout: int = 30,
+) -> dict[str, dict[str, object]]:
+    endpoint = f"{base_url.rstrip('/')}/variablepresentations"
+    vocabulary = {}
+    session = requests.Session()
+
+    for page in range(1, max_pages + 1):
+        response = session.get(
+            endpoint,
+            params={
+                "username": username,
+                "page": page,
+                "per_page": per_page,
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        records = _extract_records(response.json())
+        if not records:
+            break
+        for record in records:
+            key, normalized = _normalize_mint_variable(record)
+            if key not in vocabulary:
+                vocabulary[key] = normalized
+        if len(records) < per_page:
+            break
+
+    if not vocabulary:
+        raise RuntimeError("MINT variablepresentations returned no usable records")
+    return vocabulary
+
+
+def _extract_model_candidates(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        for key in ("items", "results", "data", "models", "modelconfigurations", "modelConfigurations"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _normalize_mint_model_candidate(record: dict[str, Any], candidate_kind: str) -> dict[str, Any]:
+    label = _first_nonempty(record, "label", "name") or _first_nonempty(record, "id", "@id")
+    description = _first_nonempty(record, "description", "shortDescription", "hasPurpose")
+    keywords = _coerce_string_list(record.get("keywords"))
+    categories = _coerce_string_list(record.get("hasModelCategory"))
+    inputs = _coerce_string_list(record.get("hasInput"))
+    outputs = _coerce_string_list(record.get("hasOutput"))
+    processes = _coerce_string_list(record.get("hasProcess"))
+    text_parts = [label, description, *keywords, *categories, *inputs, *outputs, *processes]
+    searchable_text = " ".join(_humanize_identifier(part) for part in text_parts if part).lower()
+    return {
+        "id": _first_nonempty(record, "id", "@id"),
+        "label": label,
+        "description": description,
+        "keywords": keywords,
+        "categories": categories,
+        "inputs": inputs,
+        "outputs": outputs,
+        "processes": processes,
+        "candidate_kind": candidate_kind,
+        "searchable_text": searchable_text,
+    }
+
+
+def fetch_mint_model_candidates(
+    base_url: str,
+    username: str = "mint@isi.edu",
+    per_page: int = 100,
+    max_pages: int = 3,
+    timeout: int = 30,
+) -> list[dict[str, Any]]:
+    session = requests.Session()
+    endpoints = [
+        ("models", "Model"),
+        ("modelconfigurations", "Model Configuration"),
+    ]
+    candidates = []
+    seen_ids = set()
+
+    for endpoint_name, candidate_kind in endpoints:
+        endpoint = f"{base_url.rstrip('/')}/{endpoint_name}"
+        for page in range(1, max_pages + 1):
+            response = session.get(
+                endpoint,
+                params={
+                    "username": username,
+                    "page": page,
+                    "per_page": per_page,
+                },
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            records = _extract_model_candidates(response.json())
+            if not records:
+                break
+            for record in records:
+                normalized = _normalize_mint_model_candidate(record, candidate_kind)
+                record_id = normalized["id"] or normalized["label"]
+                if record_id in seen_ids:
+                    continue
+                seen_ids.add(record_id)
+                candidates.append(normalized)
+            if len(records) < per_page:
+                break
+
+    if not candidates:
+        raise RuntimeError("MINT model catalog returned no usable model candidates")
+    return candidates
+
+
+def recommend_models_for_svo_mappings(
+    unique_mappings: list[dict[str, str]],
+    model_candidates: list[dict[str, Any]],
+    recommendations_per_svo: int = 2,
+) -> list[dict[str, str]]:
+    grouped = {}
+    for mapping in unique_mappings:
+        grouped.setdefault(mapping["scientific_variable"], mapping)
+
+    recommendations = []
+    for scientific_variable, mapping in grouped.items():
+        query_terms = {
+            mapping["scientific_variable"].replace("_", " ").lower(),
+            mapping["standard_name"].lower(),
+            mapping["domain"].lower(),
+            mapping["natural_language_term"].lower(),
+        }
+        query_terms.update(term for term in mapping["standard_name"].lower().split() if len(term) >= 4)
+        scored = []
+        for candidate in model_candidates:
+            score = 0
+            searchable_text = candidate["searchable_text"]
+            for term in query_terms:
+                if not term:
+                    continue
+                if term in searchable_text:
+                    score += 3 if " " in term else 1
+            if mapping["domain"].lower() in " ".join(candidate["categories"]).lower():
+                score += 3
+            if mapping["natural_language_term"].lower() in searchable_text:
+                score += 2
+            if score > 0:
+                scored.append((score, candidate))
+
+        scored.sort(key=lambda item: (-item[0], item[1]["label"]))
+        for rank, (score, candidate) in enumerate(scored[:recommendations_per_svo], start=1):
+            recommendations.append(
+                {
+                    "scientific_variable": scientific_variable,
+                    "standard_name": mapping["standard_name"],
+                    "domain": mapping["domain"],
+                    "recommended_model": candidate["label"],
+                    "model_type": candidate["candidate_kind"],
+                    "model_categories": ", ".join(candidate["categories"]),
+                    "model_keywords": ", ".join(candidate["keywords"]),
+                    "reason_score": score,
+                    "model_description": candidate["description"],
+                    "rank": rank,
+                }
+            )
+    return recommendations
+
+
+def recommend_mint_queries_for_topics(
+    topics_info: dict[str, dict[str, Any]],
+    model_candidates: list[dict[str, Any]],
+    recommendations_per_topic: int = 2,
+    tags_per_topic: int = 5,
+) -> list[dict[str, Any]]:
+    recommendations = []
+    for topic_id, topic_info in topics_info.items():
+        query_terms = set(topic_info["keywords"])
+        query_terms.update(term for term in topic_display_name(topic_info).lower().replace(":", " ").split() if len(term) >= 4)
+        query_terms.update(term for term in topic_info.get("description", "").lower().split() if len(term) >= 4)
+
+        scored = []
+        for candidate in model_candidates:
+            score = 0
+            searchable_text = candidate["searchable_text"]
+            for term in query_terms:
+                if not term:
+                    continue
+                if term in searchable_text:
+                    score += 3 if " " in term else 1
+            if topic_info.get("description"):
+                score += sum(1 for word in topic_info["description"].lower().split() if len(word) >= 6 and word in searchable_text)
+            if score > 0:
+                scored.append((score, candidate))
+
+        scored.sort(key=lambda item: (-item[0], item[1]["label"]))
+        top_scored = scored[: max(recommendations_per_topic * 3, 6)]
+
+        category_counts = Counter()
+        keyword_counts = Counter()
+        for score, candidate in top_scored:
+            for category in candidate["categories"]:
+                category_counts[_humanize_identifier(category)] += score
+            for keyword in candidate["keywords"]:
+                keyword_counts[_humanize_identifier(keyword)] += score
+
+        top_models = scored[:recommendations_per_topic]
+        recommendations.append(
+            {
+                "topic": topic_id,
+                "label": topic_display_name(topic_info),
+                "description": topic_info.get("description", ""),
+                "query_domains": [name for name, _ in category_counts.most_common(3)],
+                "query_tags": [name for name, _ in keyword_counts.most_common(tags_per_topic)],
+                "recommended_models": [
+                    {
+                        "label": candidate["label"],
+                        "type": candidate["candidate_kind"],
+                        "categories": candidate["categories"],
+                        "keywords": candidate["keywords"],
+                        "description": candidate["description"],
+                        "score": score,
+                    }
+                    for score, candidate in top_models
+                ],
+            }
+        )
+    return recommendations
 
 
 def map_topics_to_domains(
@@ -453,12 +956,22 @@ def plot_component_distribution(component_counts_map: dict[str, int]) -> go.Figu
     return fig
 
 
-def create_svo_mappings(documents: dict[str, str], svo_vocabulary: dict[str, dict[str, object]]) -> list[dict[str, str]]:
+def create_svo_mappings(
+    documents: dict[str, str],
+    svo_vocabulary: dict[str, dict[str, object]],
+    min_keyword_words: int = 2,
+    allow_single_word_keywords: set[str] | None = None,
+) -> list[dict[str, str]]:
     mappings = []
+    allowed_singletons = {keyword.strip().lower() for keyword in (allow_single_word_keywords or set()) if keyword.strip()}
     for doc_name, text in documents.items():
         text_lower = text.lower()
         for svo_name, svo_info in svo_vocabulary.items():
             for keyword in svo_info["keywords"]:
+                normalized_keyword = " ".join(keyword.lower().split())
+                keyword_word_count = len(normalized_keyword.split())
+                if keyword_word_count < min_keyword_words and normalized_keyword not in allowed_singletons:
+                    continue
                 if keyword in text_lower:
                     context = ""
                     for sentence in sent_tokenize(text):

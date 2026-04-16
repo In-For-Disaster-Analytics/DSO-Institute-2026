@@ -1,5 +1,5 @@
 {
-  "id": "cookbook-jupyter-template-cpu",
+  "id": "DSO-Institute-2026-app-cpu",
   "version": "0.0.2",
   "description": "Jupyter Lab environment for CPU",
   "owner": "${apiUserId}",
@@ -7,7 +7,7 @@
   "runtime": "SINGULARITY",
   "runtimeVersion": null,
   "runtimeOptions": ["SINGULARITY_RUN"],
-  "containerImage": "docker://ghcr.io/in-for-disaster-analytics/cookbook-jupyter-template-cpu:0.0.2",
+  "containerImage": "docker://ghcr.io/in-for-disaster-analytics/dso-institute-2026-cpu:sha-1e17644",
   "jobType": "BATCH",
   "maxJobs": -1,
   "maxJobsPerUser": -1,
@@ -141,11 +141,11 @@
   },
   "tags": ["portalName: ALL"],
   "notes": {
-    "label": "Cookbook - Jupyter Lab (CPU)",
+    "label": "DSO Institute 2026",
     "hideNodeCountAndCoresPerNode": true,
     "isInteractive": true,
     "icon": "jupyter",
     "category": "Data Processing",
-    "queueFilter": ["development", "vm-small"]
+    "queueFilter": [ "vm-small"]
   }
 }
