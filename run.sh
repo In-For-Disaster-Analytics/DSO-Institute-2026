@@ -241,7 +241,7 @@ function configure_nltk_data() {
 	export NLTK_DATA="${HOME}/nltk_data"
 	mkdir -p "${NLTK_DATA}"
 
-	python - <<'PY'
+	conda run -n "${COOKBOOK_CONDA_ENV}" python - <<'PY'
 import os
 import nltk
 
@@ -261,16 +261,14 @@ PY
 function create_conda_environment() {
 	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml ]; then
 		conda env create -n ${COOKBOOK_CONDA_ENV} -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml --yes
-		conda activate ${COOKBOOK_CONDA_ENV}
 	elif  [ -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yaml ]; then
 		conda env create -n ${COOKBOOK_CONDA_ENV} -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yaml --yes
-		conda activate ${COOKBOOK_CONDA_ENV}
 	fi
 	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt ]; then
-		pip install --no-cache-dir -r $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt
+		conda run -n "${COOKBOOK_CONDA_ENV}" python -m pip install --no-cache-dir -r $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt
 	fi
 	configure_nltk_data
-	python -m ipykernel install --user --name "${COOKBOOK_CONDA_ENV}" --display-name "Python (${COOKBOOK_CONDA_ENV})"
+	conda run -n "${COOKBOOK_CONDA_ENV}" python -m ipykernel install --user --name "${COOKBOOK_CONDA_ENV}" --display-name "Python (${COOKBOOK_CONDA_ENV})"
 }
 
 function delete_conda_environment() {
