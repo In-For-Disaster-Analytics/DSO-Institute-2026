@@ -113,16 +113,24 @@ def nullable_str(value: Any) -> str | None:
 
 def resolve_resource_path(row: dict[str, str], cleaned_dir: Path) -> Path:
     extracted_path = nullable_str(row.get("extracted_text_path"))
-    if not extracted_path:
-        raise FileNotFoundError(f"No cleaned corpus file recorded for {row.get('title') or row.get('name')}")
+    saved_path = nullable_str(row.get("saved_path"))
+    title = row.get("title") or row.get("name") or ""
 
-    candidate = Path(extracted_path)
-    cleaned_candidate = cleaned_dir / candidate.name
-    if cleaned_candidate.exists():
-        return cleaned_candidate
+    candidates: list[Path] = []
+    if extracted_path:
+        extracted_candidate = Path(extracted_path)
+        candidates.append(cleaned_dir / extracted_candidate.name)
+        candidates.append(extracted_candidate)
+    if saved_path:
+        saved_candidate = Path(saved_path)
+        candidates.append(cleaned_dir / saved_candidate.name)
+    if title:
+        title_slug = slugify(title)
+        candidates.extend(sorted(cleaned_dir.glob(f"{title_slug}.*")))
 
-    if candidate.exists() and cleaned_dir in candidate.parents:
-        return candidate
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
 
     raise FileNotFoundError(f"No cleaned corpus file found for {row.get('title') or row.get('name')}")
 

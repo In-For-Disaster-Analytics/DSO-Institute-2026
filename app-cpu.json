@@ -1,13 +1,13 @@
 {
   "id": "DSO-Institute-2026-app-cpu",
-  "version": "0.0.2",
+  "version": "0.0.397a42a",
   "description": "Jupyter Lab environment for CPU",
   "owner": "${apiUserId}",
   "enabled": true,
   "runtime": "SINGULARITY",
   "runtimeVersion": null,
   "runtimeOptions": ["SINGULARITY_RUN"],
-  "containerImage": "docker://ghcr.io/in-for-disaster-analytics/dso-institute-2026-cpu:sha-1e17644",
+  "containerImage": "docker://ghcr.io/in-for-disaster-analytics/dso-institute-2026-cpu:sha-397a42a",
   "jobType": "BATCH",
   "maxJobs": -1,
   "maxJobsPerUser": -1,
@@ -26,7 +26,7 @@
     "archiveOnAppError": true,
     "isMpi": false,
     "mpiCmd": null,
-    "cmdPrefix": "mkdir $PWD/work $PWD/home $PWD/scratch;",
+    "cmdPrefix": "mkdir -p $PWD/work $PWD/home $PWD/scratch $PWD/cookbooks $WORK/cookbooks;",
     "parameterSet": {
       "appArgs": [
         {
@@ -87,7 +87,7 @@
           "name": "Jupyter Mounts",
           "description": "Mount for TAP functions and user dirs",
           "inputMode": "FIXED",
-          "arg": "--bind /share,$WORK:$PWD/work,$HOME:$PWD/home,$SCRATCH:$PWD/scratch",
+          "arg": "--bind /share,$WORK:$PWD/work,$HOME:$PWD/home,$SCRATCH:$PWD/scratch,$WORK/cookbooks:$PWD/cookbooks",
           "notes": {
             "isHidden": true
           }

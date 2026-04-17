@@ -1,45 +1,52 @@
 """Default data and configuration for the semantic bridge tutorial."""
 
 DEFAULT_SCIENCE_BACKBONE = {
-    "Environmental Science": [
-        "Climate Science",
+    "Water Systems": [
+        "Groundwater",
+        "Surface Water",
         "Hydrology",
-        "Ecology",
-        "Coastal Systems",
+        "Water Management",
     ],
-    "Physical Science": [
-        "Oceanography",
-        "Atmospheric Science",
+    "Earth and Environmental Change": [
         "Geology",
         "Geophysics",
+        "Subsidence",
+        "Climate Impacts",
     ],
-    "Social Science": [
-        "Economics",
-        "Urban Planning",
-        "Policy Analysis",
-        "Community Development",
-    ],
-    "Engineering": [
-        "Civil Engineering",
-        "Infrastructure Design",
-        "Water Resources",
+    "Infrastructure and Operations": [
+        "Water Supply Infrastructure",
+        "Monitoring Systems",
+        "Utilities Planning",
         "Risk Management",
     ],
-    "Data Science": [
-        "Statistical Modeling",
-        "GIS Analysis",
-        "Machine Learning",
-        "Scenario Planning",
+    "Governance and Decision-Making": [
+        "Policy",
+        "Regulation",
+        "Planning",
+        "Stakeholder Engagement",
+    ],
+    "Society and Economy": [
+        "Community Impacts",
+        "Economics",
+        "Public Communication",
+        "Regional Development",
+    ],
+    "Modeling and Analysis": [
+        "Scenario Analysis",
+        "Decision Support",
+        "Data Integration",
+        "Spatial Analysis",
     ],
 }
 
 
 DEFAULT_DOMAIN_KEYWORDS = {
-    "Environmental Science": ["water", "flooding", "climate", "coastal", "wells", "aquifer"],
-    "Physical Science": ["surge", "level", "rise", "ocean", "groundwater", "subsidence"],
-    "Social Science": ["community", "people", "planning", "economic", "residents"],
-    "Engineering": ["infrastructure", "drainage", "systems", "facilities", "monitoring"],
-    "Data Science": ["model", "data", "scenarios", "analysis", "indicators"],
+    "Water Systems": ["water", "groundwater", "aquifer", "well", "pumping", "supply"],
+    "Earth and Environmental Change": ["subsidence", "land", "surface", "geology", "climate", "environment"],
+    "Infrastructure and Operations": ["infrastructure", "utility", "system", "operations", "monitoring", "facility"],
+    "Governance and Decision-Making": ["policy", "regulatory", "regulation", "district", "planning", "management"],
+    "Society and Economy": ["community", "people", "public", "economic", "residents", "stakeholder"],
+    "Modeling and Analysis": ["model", "analysis", "data", "scenario", "decision", "indicator"],
 }
 
 
