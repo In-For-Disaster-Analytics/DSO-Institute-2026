@@ -11,6 +11,5 @@ networkx
 python-docx
 pillow
 pytesseract
-en-core-web-sm
 pypdf
 openai

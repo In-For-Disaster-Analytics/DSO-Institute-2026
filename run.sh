@@ -265,6 +265,10 @@ function install_ckan_jupyter_extension() {
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m jupyter server extension enable --sys-prefix --py ckan_jupyter
 }
 
+function install_spacy_model() {
+	conda run -n "${COOKBOOK_CONDA_ENV}" python -m spacy download en_core_web_sm
+}
+
 function create_conda_environment() {
 	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml ]; then
 		conda env create -n ${COOKBOOK_CONDA_ENV} -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml --yes
@@ -274,6 +278,7 @@ function create_conda_environment() {
 	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt ]; then
 		conda run -n "${COOKBOOK_CONDA_ENV}" python -m pip install --no-cache-dir -r $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt
 	fi
+	install_spacy_model
 	install_ckan_jupyter_extension
 	configure_nltk_data
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m ipykernel install --user --name "${COOKBOOK_CONDA_ENV}" --display-name "${COOKBOOK_KERNEL_DISPLAY_NAME}"
