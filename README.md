@@ -31,7 +31,7 @@ The `run.sh` file is used to run the commands and define important variables for
 #!/bin/bash
 export GIT_REPO_URL="https://github.com/In-For-Disaster-Analytics/Cookbook-Jupyter-Template.git"
 export COOKBOOK_NAME="cookbook-template-jupyter"
-export COOKBOOK_CONDA_ENV="example"
+export COOKBOOK_CONDA_ENV="DSO-Institute"
 IS_GPU_JOB=false
 ```
 

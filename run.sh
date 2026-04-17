@@ -6,9 +6,11 @@ set -xe
 # COOKBOOK_NAME: Name of the cookbook
 # COOKBOOK_CONDA_ENV: Name of the conda environment
 # IS_GPU_JOB: Boolean value to indicate if the job is a GPU job. If true, it will load the CUDA module
-export GIT_REPO_URL="https://github.com/In-For-Disaster-Analytics/Cookbook-Jupyter-Template.git"
+export GIT_REPO_URL="https://github.com/In-For-Disaster-Analytics/DSO-Institute-2026.git"
 export COOKBOOK_NAME="DSO-Summer-Institute-2026"
-export COOKBOOK_CONDA_ENV="example"
+export COOKBOOK_CONDA_ENV="DSO-Institute"
+export COOKBOOK_KERNEL_DISPLAY_NAME="Python (DSO-Institute)"
+export CKAN_JUPYTER_REPO_URL="https://github.com/In-For-Disaster-Analytics/ckan-jupyter.git"
 IS_GPU_JOB=false
 
 
@@ -258,6 +260,11 @@ for package in packages:
 PY
 }
 
+function install_ckan_jupyter_extension() {
+	conda run -n "${COOKBOOK_CONDA_ENV}" python -m pip install --no-cache-dir "git+${CKAN_JUPYTER_REPO_URL}"
+	conda run -n "${COOKBOOK_CONDA_ENV}" python -m jupyter server extension enable --sys-prefix --py ckan_jupyter
+}
+
 function create_conda_environment() {
 	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml ]; then
 		conda env create -n ${COOKBOOK_CONDA_ENV} -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml --yes
@@ -267,8 +274,9 @@ function create_conda_environment() {
 	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt ]; then
 		conda run -n "${COOKBOOK_CONDA_ENV}" python -m pip install --no-cache-dir -r $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt
 	fi
+	install_ckan_jupyter_extension
 	configure_nltk_data
-	conda run -n "${COOKBOOK_CONDA_ENV}" python -m ipykernel install --user --name "${COOKBOOK_CONDA_ENV}" --display-name "Python (${COOKBOOK_CONDA_ENV})"
+	conda run -n "${COOKBOOK_CONDA_ENV}" python -m ipykernel install --user --name "${COOKBOOK_CONDA_ENV}" --display-name "${COOKBOOK_KERNEL_DISPLAY_NAME}"
 }
 
 function delete_conda_environment() {
