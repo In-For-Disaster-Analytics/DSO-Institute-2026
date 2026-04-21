@@ -1,4 +1,8 @@
-"""Default data and configuration for the semantic bridge tutorial."""
+"""Default data and configuration for the semantic bridge package."""
+
+from __future__ import annotations
+
+from copy import deepcopy
 
 DEFAULT_SCIENCE_BACKBONE = {
     "Water Systems": [
@@ -218,42 +222,14 @@ SAMPLE_TRANSCRIPTS = {
     The overarching goal is to protect the community from flood hazards while preserving
     environmental resources. We aim to maintain infrastructure resilience under future
     climate conditions.
-
-    SPECIFIC OBJECTIVES:
-    1. Minimize annual flood damage costs to less than $500,000
-    2. Reduce peak flood depths by 40% during 10-year storm events
-    3. Maximize community co-benefits (recreation, green space, water quality)
-
-    DECISION FRAMEWORK:
-
-    The primary decision variable is the selection of infrastructure investment strategy
-    from three alternatives:
-
-    Alternative A: Traditional gray infrastructure ($3.2M investment)
-    Alternative B: Green infrastructure approach ($2.8M investment)
-    Alternative C: Hybrid strategy ($3.5M investment)
-
-    Implementation decisions also include phasing schedules and maintenance strategies.
-
-    CONSTRAINTS:
-    - Cannot exceed $3.5 million budget constraint
-    - Must complete implementation within 24-month time limit
-    - Cannot impact historic building foundations
-    - Limited to existing public right-of-way areas
-
-    PERFORMANCE METRICS:
-
-    Key indicators for evaluating alternatives:
-    - Maximum flood depth at critical intersections (target: <6 inches)
-    - Frequency of road closures (metric: closures per year)
-    - Economic damage per storm event (measured in dollars)
-    - Stormwater volume captured (measure in acre-feet)
-    - Cost-effectiveness indicator (damage reduced per dollar invested)
-
-    RECOMMENDATIONS:
-
-    Our objective is to reduce flood risk while maximizing return on investment. The decision
-    should minimize lifecycle costs while achieving flood depth reduction goals. We aim to
-    preserve flexibility for future adaptations as climate conditions change.
     """,
 }
+
+
+def default_science_backbone() -> dict[str, list[str]]:
+    return deepcopy(DEFAULT_SCIENCE_BACKBONE)
+
+
+def default_svo_vocabulary() -> dict[str, dict[str, object]]:
+    return deepcopy(DEFAULT_SVO_VOCABULARY)
+

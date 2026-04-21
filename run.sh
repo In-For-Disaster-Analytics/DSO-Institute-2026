@@ -261,8 +261,38 @@ PY
 }
 
 function install_ckan_jupyter_extension() {
-	conda run -n "${COOKBOOK_CONDA_ENV}" python -m pip install --no-cache-dir "git+${CKAN_JUPYTER_REPO_URL}"
+	conda run -n "${COOKBOOK_CONDA_ENV}" python -m pip install --no-cache-dir --no-build-isolation "git+${CKAN_JUPYTER_REPO_URL}"
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m jupyter server extension enable --sys-prefix --py ckan_jupyter
+	conda run -n "${COOKBOOK_CONDA_ENV}" python - <<'PY'
+from pathlib import Path
+import os
+import shutil
+import site
+import sys
+
+env_prefix = Path(sys.prefix)
+site_packages = [Path(path) for path in site.getsitepackages()]
+candidate_roots = site_packages + [env_prefix]
+
+lab_source = None
+for root in candidate_roots:
+    candidate = root / "ckan_jupyter" / "labextension"
+    if candidate.is_dir() and (candidate / "package.json").is_file():
+        lab_source = candidate
+        break
+
+if lab_source is None:
+    raise SystemExit("TACC: ERROR - ckan-jupyter labextension bundle was not found after install")
+
+lab_dest = env_prefix / "share" / "jupyter" / "labextensions" / "@dso" / "ckan-jupyter"
+lab_dest.parent.mkdir(parents=True, exist_ok=True)
+
+if lab_dest.exists():
+    shutil.rmtree(lab_dest)
+
+shutil.copytree(lab_source, lab_dest)
+print(f"Installed ckan-jupyter labextension to {lab_dest}")
+PY
 }
 
 function install_spacy_model() {

@@ -129,12 +129,6 @@ def print_topic_query_recommendations(topic_query_recommendations: list[dict[str
             lines.append(f"*{recommendation['description']}*")
         lines.append(f"- **Suggested MINT domains:** {', '.join(recommendation['query_domains']) or 'None'}")
         lines.append(f"- **Suggested MINT tags:** {', '.join(recommendation['query_tags']) or 'None'}")
-        for idx, model in enumerate(recommendation["recommended_models"], start=1):
-            lines.append(f"- **{idx}.** {model['label']} *[{model['type']}]*")
-            if model.get("categories"):
-                lines.append(f"  Categories: {', '.join(model['categories'])}")
-            if model.get("keywords"):
-                lines.append(f"  Tags: {', '.join(model['keywords'][:5])}")
     _render_markdown("\n".join(lines))
 
 
@@ -278,3 +272,4 @@ def print_report_preview(summary: str, report_path: Path, preview_chars: int = 1
             ]
         )
     )
+

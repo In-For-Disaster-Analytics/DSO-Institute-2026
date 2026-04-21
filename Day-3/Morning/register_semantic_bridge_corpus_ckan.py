@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ckanapi import RemoteCKAN
-from semantic_bridge_ckan import DEFAULT_TAPIS_URL, build_ckan_auth_header
+from semantic_bridge.io.ckan import DEFAULT_TAPIS_URL, build_ckan_auth_header
 
 
 DEFAULT_DATASET_NAME = "subsidence-groundwater-semantic-bridge-corpus"
