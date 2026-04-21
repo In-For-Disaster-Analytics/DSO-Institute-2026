@@ -263,9 +263,9 @@ PY
 function install_ckan_jupyter_extension() {
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m pip install --no-cache-dir --no-build-isolation "git+${CKAN_JUPYTER_REPO_URL}"
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m jupyter server extension enable --sys-prefix --py ckan_jupyter
-	conda run -n "${COOKBOOK_CONDA_ENV}" python - <<'PY'
+	CKAN_JUPYTER_COPY_SCRIPT="$(mktemp)"
+	cat <<'PY' > "${CKAN_JUPYTER_COPY_SCRIPT}"
 from pathlib import Path
-import os
 import shutil
 import site
 import sys
@@ -293,6 +293,8 @@ if lab_dest.exists():
 shutil.copytree(lab_source, lab_dest)
 print(f"Installed ckan-jupyter labextension to {lab_dest}")
 PY
+	conda run -n "${COOKBOOK_CONDA_ENV}" python "${CKAN_JUPYTER_COPY_SCRIPT}"
+	rm -f "${CKAN_JUPYTER_COPY_SCRIPT}"
 }
 
 function install_spacy_model() {
