@@ -30,26 +30,33 @@ fi
 export DOWNLOAD_LATEST_VERSION=$1
 export UPDATE_CONDA_ENV=$2
 export GIT_BRANCH=$3
-
 function install_conda() {
-	echo "Checking if miniconda3 is installed..."
-	if [ ! -d "$WORK/miniconda3" ]; then
-		echo "Miniconda not found in $WORK..."
-		echo "Installing..."
-		mkdir -p "$WORK/miniconda3"
-		curl https://repo.anaconda.com/miniconda/Miniconda3-py311_23.10.0-1-Linux-x86_64.sh -o "$WORK/miniconda3/miniconda.sh"
-		bash "$WORK/miniconda3/miniconda.sh" -b -u -p "$WORK/miniconda3"
-		rm -rf "$WORK/miniconda3/miniconda.sh"
-		export PATH="$WORK/miniconda3/bin:$PATH"
-		echo "Ensuring conda base environment is OFF..."
-		conda config --set auto_activate_base false
-	else
-		export PATH="$WORK/miniconda3/bin:$PATH"
-	fi
-	conda init bash
-	echo "Sourcing .bashrc..."
-	source ~/.bashrc
-	unset PYTHONPATH
+    echo "Checking if miniforge3 (mamba) is installed..."
+    
+    if [ ! -d "$WORK/miniforge3" ]; then
+        echo "Mamba not found in $WORK. Installing Miniforge..."
+        mkdir -p "$WORK/miniforge3"
+        
+        # Download Miniforge (contains Mamba by default)
+        curl -L https://github.com -o "$WORK/miniforge3/miniforge.sh"
+        
+        # Install in batch mode
+        bash "$WORK/miniforge3/miniforge.sh" -b -u -p "$WORK/miniforge3"
+        rm -rf "$WORK/miniforge3/miniforge.sh"
+        
+        export PATH="$WORK/miniforge3/bin:$PATH"
+        
+        # Configuration
+        mamba config --set auto_activate_base false
+        mamba config --set channel_priority strict
+    else
+        export PATH="$WORK/miniforge3/bin:$PATH"
+    fi
+
+    mamba init bash
+    echo "Sourcing .bashrc..."
+    source ~/.bashrc
+    unset PYTHONPATH
 }
 
 function load_cuda() {
