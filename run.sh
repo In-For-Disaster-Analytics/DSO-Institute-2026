@@ -313,6 +313,8 @@ function create_conda_environment() {
 	ENV_NAME="$2"
 	ENV_FILE="${COOKBOOK_WORKSPACE_DIR}/.binder/${ENV_FILENAME}"
 	conda config --set channel_priority strict
+	conda config --set solver libmamba 
+
 	if [ -z "${ENV_FILENAME}" ]; then
 		echo "TACC: ERROR - No environment file name provided"
 		exit 1
@@ -329,7 +331,7 @@ function create_conda_environment() {
 	fi
 
 	echo "Creating conda environment '${ENV_NAME}' from ${ENV_FILE}"
-	conda env create -n "${ENV_NAME}" -f "${ENV_FILE}" --yes conda-libmamba-solver
+	conda env create -n "${ENV_NAME}" -f "${ENV_FILE}" --yes 
 
 	if [ -f "${COOKBOOK_WORKSPACE_DIR}/.binder/requirements.txt" ]; then
 		echo "Installing shared requirements.txt into ${ENV_NAME}"
