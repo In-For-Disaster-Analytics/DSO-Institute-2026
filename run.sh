@@ -329,7 +329,7 @@ function create_conda_environment() {
 	fi
 
 	echo "Creating conda environment '${ENV_NAME}' from ${ENV_FILE}"
-	conda env create -n "${ENV_NAME}" -f "${ENV_FILE}" --yes
+	conda env create -n "${ENV_NAME}" -f "${ENV_FILE}" --yes conda-libmamba-solver
 
 	if [ -f "${COOKBOOK_WORKSPACE_DIR}/.binder/requirements.txt" ]; then
 		echo "Installing shared requirements.txt into ${ENV_NAME}"

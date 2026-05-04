@@ -1,6 +1,6 @@
 {
   "id": "DSO-Institute-2026-app-cpu",
-  "version": "0.0.57db7b2",
+  "version": "0.0.57db7b4",
   "description": "Jupyter Lab environment for CPU",
   "owner": "${apiUserId}",
   "enabled": true,
@@ -111,7 +111,17 @@
           "notes": {
             "isHidden": true
           }
-        }
+        },
+        {
+                    "name": "TACC Reservation",
+                    "description": "Reservation input string",
+                    "inputMode": "INCLUDE_ON_DEMAND",
+                    "arg": null,
+                    "notes": {
+                        "isHidden": true,
+                        "showReservation": true
+                    }
+                }
       ],
       "envVariables": [
         {
@@ -146,6 +156,7 @@
     "isInteractive": true,
     "icon": "jupyter",
     "category": "Data Processing",
-    "queueFilter": [ "vm-small"]
+    "queueFilter": [ "vm-small"],
+    "showReservation": true
   }
 }
