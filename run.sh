@@ -309,7 +309,7 @@ function install_spacy_model() {
 }
 function download_opera_setup_env() {
 	curl -L \
-		-o "${COOKBOOK_WORKSPACE_DIR}/setup_env.py" \
+		-o "${COOKBOOK_WORKSPACE_DIR}/Day-04/setup_env.py" \
 		"https://raw.githubusercontent.com/OPERA-Cal-Val/OPERA_Applications/main/DISP/Discover/setup_env.py"
 
 	echo "setup_env.py downloaded successfully"
