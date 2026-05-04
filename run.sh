@@ -300,20 +300,50 @@ PY
 function install_spacy_model() {
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m spacy download en_core_web_sm
 }
+function download_opera_setup_env() {
+	curl -L \
+		-o "${COOKBOOK_WORKSPACE_DIR}/setup_env.py" \
+		"https://raw.githubusercontent.com/OPERA-Cal-Val/OPERA_Applications/main/DISP/Discover/setup_env.py"
+
+	echo "setup_env.py downloaded successfully"
+}
 
 function create_conda_environment() {
-	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml ]; then
-		conda env create -n ${COOKBOOK_CONDA_ENV} -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yml --yes
-	elif  [ -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yaml ]; then
-		conda env create -n ${COOKBOOK_CONDA_ENV} -f $COOKBOOK_WORKSPACE_DIR/.binder/environment.yaml --yes
+	ENV_FILENAME="$1"
+	ENV_NAME="$2"
+	ENV_FILE="${COOKBOOK_WORKSPACE_DIR}/.binder/${ENV_FILENAME}"
+
+	if [ -z "${ENV_FILENAME}" ]; then
+		echo "TACC: ERROR - No environment file name provided"
+		exit 1
 	fi
-	if [ -f $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt ]; then
-		conda run -n "${COOKBOOK_CONDA_ENV}" python -m pip install --no-cache-dir -r $COOKBOOK_WORKSPACE_DIR/.binder/requirements.txt
+
+	if [ -z "${ENV_NAME}" ]; then
+		echo "TACC: ERROR - No conda environment name provided"
+		exit 1
 	fi
-	install_spacy_model
-	install_ckan_jupyter_extension
-	configure_nltk_data
-	conda run -n "${COOKBOOK_CONDA_ENV}" python -m ipykernel install --user --name "${COOKBOOK_CONDA_ENV}" --display-name "${COOKBOOK_KERNEL_DISPLAY_NAME}"
+
+	if [ ! -f "${ENV_FILE}" ]; then
+		echo "TACC: ERROR - Environment file not found: ${ENV_FILE}"
+		exit 1
+	fi
+
+	echo "Creating conda environment '${ENV_NAME}' from ${ENV_FILE}"
+	conda env create -n "${ENV_NAME}" -f "${ENV_FILE}" --yes
+
+	if [ -f "${COOKBOOK_WORKSPACE_DIR}/.binder/requirements.txt" ]; then
+		echo "Installing shared requirements.txt into ${ENV_NAME}"
+		conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir -r "${COOKBOOK_WORKSPACE_DIR}/.binder/requirements.txt"
+	fi
+
+	if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
+		download_opera_setup_env
+	fi
+
+	conda run -n "${ENV_NAME}" python -m ipykernel install \
+		--user \
+		--name "${ENV_NAME}" \
+		--display-name "Python (${ENV_NAME})"
 }
 
 function delete_conda_environment() {
@@ -326,12 +356,16 @@ function handle_installation() {
 		if { conda_environment_exists; } >/dev/null 2>&1; then
 			delete_conda_environment
 		fi
-		create_conda_environment
+		create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}"
+		create_conda_environment h2iUTA.yaml "h2iUTA"
+		create_conda_environment werc.yaml "werc"
 	else
 		if { conda_environment_exists; } >/dev/null 2>&1; then
 			echo "Conda environment already exists"
 		else
-			create_conda_environment
+			create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}"
+			create_conda_environment h2iUTA.yaml "h2iUTA"
+			create_conda_environment werc.yaml "werc"
 		fi
 	fi
 }
