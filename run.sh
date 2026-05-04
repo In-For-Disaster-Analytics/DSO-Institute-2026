@@ -61,7 +61,7 @@ function install_conda() {
         source "$CONDA_ROOT/etc/profile.d/mamba.sh"
     fi
 
-    conda config --set auto_activate_base false
+	conda config --set auto_activate false
     conda config --set channel_priority strict
     conda config --set solver libmamba || true
 
@@ -389,10 +389,10 @@ function handle_installation() {
         if { conda_environment_exists; } >/dev/null 2>&1; then
             echo "Conda environment already exists"
         else
-            create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
-            create_conda_environment h2iUTA.yaml "h2iUTA" &
-            create_conda_environment werc.yaml "werc" &
-            wait
+            create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" 
+            create_conda_environment h2iUTA.yaml "h2iUTA" 
+            create_conda_environment werc.yaml "werc" 
+            # wait
         fi
     fi
 }
