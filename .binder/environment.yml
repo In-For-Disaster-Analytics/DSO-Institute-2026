@@ -47,4 +47,5 @@ dependencies:
   - tesseract
   - pypdf
   - openai
+  - pip
   - python-dotenv

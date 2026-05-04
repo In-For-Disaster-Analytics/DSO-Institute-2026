@@ -320,11 +320,45 @@ function install_spacy_model() {
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m spacy download en_core_web_sm
 }
 function download_opera_setup_env() {
-	curl -L \
-		-o "${COOKBOOK_WORKSPACE_DIR}/Day-04/setup_env.py" \
-		"https://raw.githubusercontent.com/OPERA-Cal-Val/OPERA_Applications/main/DISP/Discover/setup_env.py"
+	wget -P "${COOKBOOK_WORKSPACE_DIR}/Day-04/setup_env.py" \
+	"https://raw.githubusercontent.com/OPERA-Cal-Val/OPERA_Applications/main/DISP/Discover/setup_env.py"
 
 	echo "setup_env.py downloaded successfully"
+}
+
+function install_displacement_tools() {
+    ENV_NAME="$1"
+    TOOLS_DIR="${COOKBOOK_WORKSPACE_DIR}/Day-04/displacement_tools"
+
+    mkdir -p "${TOOLS_DIR}"
+
+    if [ ! -d "${TOOLS_DIR}/MintPy" ]; then
+        git clone https://github.com/insarlab/MintPy.git "${TOOLS_DIR}/MintPy"
+    fi
+
+    if [ ! -d "${TOOLS_DIR}/disp-xr" ]; then
+        git clone https://github.com/opera-adt/disp-xr.git "${TOOLS_DIR}/disp-xr"
+    fi
+
+    patch_disp_xr_python_constraint "${TOOLS_DIR}"
+
+    conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir -e "${TOOLS_DIR}/MintPy"
+    conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir -e "${TOOLS_DIR}/disp-xr"
+
+    conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir \
+        rasterio \
+        rioxarray \
+        asf_search \
+        opera_utils \
+        numcodecs \
+        s3fs \
+        dem_stitcher \
+        tile_mate \
+        contextily \
+        folium \
+        zarr \
+        h5netcdf \
+        h5py
 }
 
 function create_conda_environment() {
@@ -359,6 +393,7 @@ function create_conda_environment() {
 
 	if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
 		download_opera_setup_env
+		install_displacement_tools "${ENV_NAME}"
 	fi
 
 	conda run -n "${ENV_NAME}" python -m ipykernel install \
@@ -378,9 +413,9 @@ function handle_installation() {
         fi
         
         # Launch all 3 in the background
-        create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
-        create_conda_environment h2iUTA.yaml "h2iUTA" &
-        create_conda_environment werc.yaml "werc" &
+        create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" 
+        create_conda_environment h2iUTA.yaml "h2iUTA" 
+        create_conda_environment werc.yaml "werc" 
         
         # Wait for all background processes to finish
         wait
