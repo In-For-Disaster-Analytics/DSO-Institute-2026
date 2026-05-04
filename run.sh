@@ -312,7 +312,7 @@ function create_conda_environment() {
 	ENV_FILENAME="$1"
 	ENV_NAME="$2"
 	ENV_FILE="${COOKBOOK_WORKSPACE_DIR}/.binder/${ENV_FILENAME}"
-
+	conda config --set channel_priority strict
 	if [ -z "${ENV_FILENAME}" ]; then
 		echo "TACC: ERROR - No environment file name provided"
 		exit 1
@@ -350,24 +350,30 @@ function delete_conda_environment() {
 	conda deactivate
 	conda env remove -n ${COOKBOOK_CONDA_ENV}
 }
-
 function handle_installation() {
-	if [ ${UPDATE_CONDA_ENV} = "true" ]; then
-		if { conda_environment_exists; } >/dev/null 2>&1; then
-			delete_conda_environment
-		fi
-		create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}"
-		create_conda_environment h2iUTA.yaml "h2iUTA"
-		create_conda_environment werc.yaml "werc"
-	else
-		if { conda_environment_exists; } >/dev/null 2>&1; then
-			echo "Conda environment already exists"
-		else
-			create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}"
-			create_conda_environment h2iUTA.yaml "h2iUTA"
-			create_conda_environment werc.yaml "werc"
-		fi
-	fi
+    if [ "${UPDATE_CONDA_ENV}" = "true" ]; then
+        if { conda_environment_exists; } >/dev/null 2>&1; then
+            delete_conda_environment
+        fi
+        
+        # Launch all 3 in the background
+        create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
+        create_conda_environment h2iUTA.yaml "h2iUTA" &
+        create_conda_environment werc.yaml "werc" &
+        
+        # Wait for all background processes to finish
+        wait
+        
+    else
+        if { conda_environment_exists; } >/dev/null 2>&1; then
+            echo "Conda environment already exists"
+        else
+            create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
+            create_conda_environment h2iUTA.yaml "h2iUTA" &
+            create_conda_environment werc.yaml "werc" &
+            wait
+        fi
+    fi
 }
 
 
