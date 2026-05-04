@@ -325,7 +325,31 @@ function download_opera_setup_env() {
 
 	echo "setup_env.py downloaded successfully"
 }
+function patch_disp_xr_python_constraint() {
+    TOOLS_DIR="$1"
+    PYPROJECT="${TOOLS_DIR}/disp-xr/pyproject.toml"
 
+    if [ -f "${PYPROJECT}" ]; then
+        python - <<PY
+from pathlib import Path
+
+path = Path("${PYPROJECT}")
+text = path.read_text()
+lines = []
+
+for line in text.splitlines():
+    if line.strip().startswith("requires-python"):
+        lines.append('requires-python = ">=3.11.13"')
+    else:
+        lines.append(line)
+
+path.write_text("\\n".join(lines) + "\\n")
+print(f"Patched Python constraint in {path}")
+PY
+    else
+        echo "WARNING: disp-xr pyproject.toml not found at ${PYPROJECT}"
+    fi
+}
 function install_displacement_tools() {
     ENV_NAME="$1"
     TOOLS_DIR="${COOKBOOK_WORKSPACE_DIR}/Day-04/displacement_tools"
