@@ -38,7 +38,7 @@ function install_conda() {
         mkdir -p "$WORK/miniforge3"
         
         # Download Miniforge (contains Mamba by default)
-        curl -L https://github.com -o "$WORK/miniforge3/miniforge.sh"
+        curl -L https://github.com/conda-forge/miniforge/releases/download/26.3.2-0/Miniforge3-26.3.2-0-Linux-x86_64.sh -o "$WORK/miniforge3/miniforge.sh"
         
         # Install in batch mode
         bash "$WORK/miniforge3/miniforge.sh" -b -u -p "$WORK/miniforge3"
