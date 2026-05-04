@@ -31,32 +31,44 @@ export DOWNLOAD_LATEST_VERSION=$1
 export UPDATE_CONDA_ENV=$2
 export GIT_BRANCH=$3
 function install_conda() {
-    echo "Checking if miniforge3 (mamba) is installed..."
-    
-    if [ ! -d "$WORK/miniforge3" ]; then
-        echo "Mamba not found in $WORK. Installing Miniforge..."
-        mkdir -p "$WORK/miniforge3"
-        
-        # Download Miniforge (contains Mamba by default)
-        curl -L https://github.com/conda-forge/miniforge/releases/download/26.3.2-0/Miniforge3-26.3.2-0-Linux-x86_64.sh -o "$WORK/miniforge3/miniforge.sh"
-        
-        # Install in batch mode
-        bash "$WORK/miniforge3/miniforge.sh" -b -u -p "$WORK/miniforge3"
-        rm -rf "$WORK/miniforge3/miniforge.sh"
-        
-        export PATH="$WORK/miniforge3/bin:$PATH"
-        
-        # Configuration
-        mamba config --set auto_activate_base false
-        mamba config --set channel_priority strict
-    else
-        export PATH="$WORK/miniforge3/bin:$PATH"
+    echo "Checking if Miniforge/mamba is installed..."
+
+    export CONDA_ROOT="$WORK/miniforge3"
+    export PATH="$CONDA_ROOT/bin:$PATH"
+
+    # Reinstall if the directory is missing OR mamba is missing
+    if [ ! -x "$CONDA_ROOT/bin/mamba" ]; then
+        echo "Mamba not found at $CONDA_ROOT/bin/mamba. Reinstalling Miniforge..."
+
+        rm -rf "$CONDA_ROOT"
+        mkdir -p "$CONDA_ROOT"
+
+        curl -L \
+            https://github.com/conda-forge/miniforge/releases/download/26.3.2-0/Miniforge3-26.3.2-0-Linux-x86_64.sh \
+            -o "$WORK/miniforge3.sh"
+
+        bash "$WORK/miniforge3.sh" -b -u -p "$CONDA_ROOT"
+        rm -f "$WORK/miniforge3.sh"
+
+        export PATH="$CONDA_ROOT/bin:$PATH"
     fi
 
-    mamba init bash
-    echo "Sourcing .bashrc..."
-    source ~/.bashrc
+    # Make conda available in this non-interactive shell
+    source "$CONDA_ROOT/etc/profile.d/conda.sh"
+
+    # Optional but useful if mamba shell hook exists
+    if [ -f "$CONDA_ROOT/etc/profile.d/mamba.sh" ]; then
+        source "$CONDA_ROOT/etc/profile.d/mamba.sh"
+    fi
+
+    conda config --set auto_activate_base false
+    conda config --set channel_priority strict
+    conda config --set solver libmamba || true
+
     unset PYTHONPATH
+
+    echo "Using conda: $(which conda)"
+    echo "Using mamba: $(which mamba || echo 'mamba not found')"
 }
 
 function load_cuda() {
