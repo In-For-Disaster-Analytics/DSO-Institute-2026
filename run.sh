@@ -320,7 +320,7 @@ function install_spacy_model() {
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m spacy download en_core_web_sm
 }
 function download_opera_setup_env() {
-	wget -P "${COOKBOOK_WORKSPACE_DIR}/Day-04/setup_env.py" \
+	wget -P "${COOKBOOK_WORKSPACE_DIR}/Day-4/setup_env.py" \
 	"https://raw.githubusercontent.com/OPERA-Cal-Val/OPERA_Applications/main/DISP/Discover/setup_env.py"
 
 	echo "setup_env.py downloaded successfully"
@@ -437,7 +437,7 @@ function handle_installation() {
         fi
         
         # Launch all 3 in the background
-        create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" 
+        create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
         create_conda_environment h2iUTA.yaml "h2iUTA" 
         # create_conda_environment werc.yaml "werc" 
         
@@ -448,10 +448,10 @@ function handle_installation() {
         if { conda_environment_exists; } >/dev/null 2>&1; then
             echo "Conda environment already exists"
         else
-            create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" 
+            create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
             create_conda_environment h2iUTA.yaml "h2iUTA" 
             # create_conda_environment werc.yaml "werc" 
-            # wait
+            wait
         fi
     fi
 }
@@ -470,6 +470,8 @@ get_tap_certificate
 get_tap_token
 create_jupyter_configuration
 handle_installation
+install_ckan_jupyter_extension
+
 run_jupyter
 port_fowarding
 send_url_to_webhook

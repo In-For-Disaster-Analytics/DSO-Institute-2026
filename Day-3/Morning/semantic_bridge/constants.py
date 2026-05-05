@@ -63,6 +63,35 @@ DEFAULT_COMPONENT_PATTERNS = {
 }
 
 
+DEFAULT_COMPONENT_SEED_PHRASES = {
+    "goals": [
+        "desired outcome",
+        "long term target",
+        "community protection goal",
+    ],
+    "objectives": [
+        "specific measurable objective",
+        "optimize system performance",
+        "reduce negative impacts",
+    ],
+    "variables": [
+        "decision option",
+        "management strategy choice",
+        "implementation alternative",
+    ],
+    "constraints": [
+        "budget limitation",
+        "policy restriction",
+        "feasibility boundary",
+    ],
+    "indicators": [
+        "success metric",
+        "performance indicator",
+        "measurable signal",
+    ],
+}
+
+
 DEFAULT_SVO_VOCABULARY = {
     "water_level": {
         "standard_name": "surface_water_elevation",
@@ -232,4 +261,3 @@ def default_science_backbone() -> dict[str, list[str]]:
 
 def default_svo_vocabulary() -> dict[str, dict[str, object]]:
     return deepcopy(DEFAULT_SVO_VOCABULARY)
-

@@ -10,6 +10,15 @@ class FakeChunk:
         self.text = text
 
 
+class FakeChunkWithSimilarity(FakeChunk):
+    def __init__(self, text: str, similarity_score: float):
+        super().__init__(text)
+        self.similarity_score = similarity_score
+
+    def similarity(self, _other) -> float:
+        return self.similarity_score
+
+
 class FakeSentence:
     def __init__(self, text: str, noun_chunks: list[str]):
         self.text = text
@@ -31,6 +40,40 @@ class FakeNLP:
         )
 
 
+class FakeSentenceWithSimilarity:
+    def __init__(self, text: str, noun_chunks: list[tuple[str, float]]):
+        self.text = text
+        self.noun_chunks = [FakeChunkWithSimilarity(chunk, score) for chunk, score in noun_chunks]
+
+
+class FakeNLPWithSimilarity:
+    def __call__(self, text: str):
+        if text in {
+            "desired outcome",
+            "long term target",
+            "community protection goal",
+            "specific measurable objective",
+            "optimize system performance",
+            "reduce negative impacts",
+            "decision option",
+            "management strategy choice",
+            "implementation alternative",
+            "budget limitation",
+            "policy restriction",
+            "feasibility boundary",
+            "success metric",
+            "performance indicator",
+            "measurable signal",
+        }:
+            return object()
+        return FakeDoc(
+            [
+                FakeSentenceWithSimilarity("Our goal includes flood protection.", [("flood protection", 0.1)]),
+                FakeSentenceWithSimilarity("Our goal includes flood protection for residents.", [("flood protection", 0.9)]),
+            ]
+        )
+
+
 def test_extract_decision_components_and_summaries():
     documents = {"doc.txt": "unused raw text"}
     components = extract_decision_components(documents, FakeNLP())
@@ -43,3 +86,11 @@ def test_extract_decision_components_and_summaries():
     assert set(table.columns) == {"component_type", "text", "source", "context"}
     assert not table.empty
 
+
+def test_extract_decision_components_prefers_highest_confidence_duplicate():
+    documents = {"doc.txt": "unused raw text"}
+    components = extract_decision_components(documents, FakeNLPWithSimilarity())
+    goal_matches = [item for item in components["goals"] if item["text"] == "flood protection"]
+
+    assert len(goal_matches) == 1
+    assert goal_matches[0]["confidence"] == 0.945
