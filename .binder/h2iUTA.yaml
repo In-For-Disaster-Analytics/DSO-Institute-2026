@@ -30,6 +30,7 @@ dependencies:
   - pandas
   - pillow
   - pip
+  - opera-utils
   - MintPy
   - pyproj
   - python=3.11
