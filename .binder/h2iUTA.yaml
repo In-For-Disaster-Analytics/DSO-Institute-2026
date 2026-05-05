@@ -30,6 +30,7 @@ dependencies:
   - pandas
   - pillow
   - pip
+  - MintPy
   - pyproj
   - python=3.11
   - rasterio

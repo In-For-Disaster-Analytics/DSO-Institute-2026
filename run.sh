@@ -352,7 +352,7 @@ PY
 }
 function install_displacement_tools() {
     ENV_NAME="$1"
-    TOOLS_DIR="${COOKBOOK_WORKSPACE_DIR}/Day-04/displacement_tools"
+    TOOLS_DIR="${COOKBOOK_WORKSPACE_DIR}/Day-4/displacement_tools"
 
     mkdir -p "${TOOLS_DIR}"
 
@@ -439,7 +439,7 @@ function handle_installation() {
         # Launch all 3 in the background
         create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" 
         create_conda_environment h2iUTA.yaml "h2iUTA" 
-        create_conda_environment werc.yaml "werc" 
+        # create_conda_environment werc.yaml "werc" 
         
         # Wait for all background processes to finish
         wait
@@ -450,7 +450,7 @@ function handle_installation() {
         else
             create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" 
             create_conda_environment h2iUTA.yaml "h2iUTA" 
-            create_conda_environment werc.yaml "werc" 
+            # create_conda_environment werc.yaml "werc" 
             # wait
         fi
     fi
