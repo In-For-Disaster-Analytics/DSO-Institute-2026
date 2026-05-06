@@ -3,6 +3,7 @@ from __future__ import annotations
 from semantic_bridge.analysis.decision_components import component_counts
 from semantic_bridge.analysis.decision_components import component_table
 from semantic_bridge.analysis.decision_components import extract_decision_components
+from semantic_bridge.analysis.decision_components import human_readable_component_table
 
 
 class FakeChunk:
@@ -14,6 +15,8 @@ class FakeChunkWithSimilarity(FakeChunk):
     def __init__(self, text: str, similarity_score: float):
         super().__init__(text)
         self.similarity_score = similarity_score
+        self.vocab = type("Vocab", (), {"vectors_length": 300})()
+        self.has_vector = True
 
     def similarity(self, _other) -> float:
         return self.similarity_score
@@ -65,7 +68,10 @@ class FakeNLPWithSimilarity:
             "performance indicator",
             "measurable signal",
         }:
-            return object()
+            seed_doc = type("SeedDoc", (), {})()
+            seed_doc.text = text
+            seed_doc.has_vector = True
+            return seed_doc
         return FakeDoc(
             [
                 FakeSentenceWithSimilarity("Our goal includes flood protection.", [("flood protection", 0.1)]),
@@ -94,3 +100,33 @@ def test_extract_decision_components_prefers_highest_confidence_duplicate():
 
     assert len(goal_matches) == 1
     assert goal_matches[0]["confidence"] == 0.945
+
+
+def test_human_readable_component_table_cleans_text():
+    components_df = component_table(
+        {
+            "goals": [
+                {
+                    "text": "primary \\nwater usage",
+                    "source": "harris-galveston-subsidence-district-regulatory-plan.pdf",
+                    "context": "Goal includes <p>water conservation &amp; reduced pumping</p>",
+                }
+            ]
+        }
+    )
+    components_df["readable_text"] = ["primary water use"]
+    components_df["readable_rationale"] = ["normalized whitespace and html"]
+
+    readable_df = human_readable_component_table(components_df)
+
+    assert list(readable_df.columns) == [
+        "Component Type",
+        "Decision Component",
+        "Source Document",
+        "Evidence Context",
+        "Rewrite Note",
+    ]
+    assert readable_df.loc[0, "Component Type"] == "Goal"
+    assert readable_df.loc[0, "Decision Component"] == "primary water use"
+    assert readable_df.loc[0, "Source Document"] == "harris galveston subsidence district regulatory plan"
+    assert readable_df.loc[0, "Evidence Context"] == "Goal includes water conservation & reduced pumping"

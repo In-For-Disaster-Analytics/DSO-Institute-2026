@@ -49,3 +49,5 @@ dependencies:
   - openai
   - pip
   - python-dotenv
+  - pip:
+    - upstream-sdk

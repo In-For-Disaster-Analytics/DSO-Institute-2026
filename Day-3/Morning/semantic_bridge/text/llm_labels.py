@@ -125,3 +125,83 @@ def relabel_topics_with_llm(
 
     return updated_topics
 
+
+def _parse_component_readability_response(content: str) -> dict[str, str]:
+    cleaned = content.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", " ", cleaned)
+
+    candidates = [cleaned]
+    object_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if object_match:
+        candidates.append(object_match.group(0))
+
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate, strict=False)
+            return {
+                "readable_text": str(payload.get("readable_text", "")).strip(),
+                "rationale": str(payload.get("rationale", "")).strip(),
+            }
+        except json.JSONDecodeError:
+            continue
+
+    one_line = " ".join(cleaned.split())
+    return {"readable_text": one_line, "rationale": ""}
+
+
+def improve_decision_component_readability_with_llm(
+    components_df,
+    model: str,
+    api_key: str,
+    base_url: str | None = None,
+    temperature: float = 0.1,
+):
+    """Rewrite extracted decision-component phrases into cleaner readable text.
+
+    Returns a copy of ``components_df`` with two additional columns:
+    ``readable_text`` and ``readable_rationale``.
+    """
+
+    if OpenAI is None:
+        raise RuntimeError("openai is not installed in this environment")
+
+    client = OpenAI(api_key=api_key, base_url=base_url or None)
+    updated_df = components_df.copy()
+    readable_texts: list[str] = []
+    readable_rationales: list[str] = []
+
+    system_prompt = (
+        "You are cleaning extracted decision-analysis phrases.\n"
+        "Rewrite each extracted phrase into concise, human-readable text while preserving meaning.\n"
+        "If the extracted phrase is person/place/noise and not a valid decision component, output a clearer component phrase using context.\n"
+        "Return strict JSON with keys: readable_text, rationale.\n"
+        "Keep readable_text under 10 words."
+    )
+
+    for row in updated_df.to_dict(orient="records"):
+        payload = {
+            "component_type": row.get("component_type", ""),
+            "text": row.get("text", ""),
+            "source": row.get("source", ""),
+            "context": row.get("context", ""),
+        }
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(payload, indent=2)},
+            ],
+            temperature=temperature,
+        )
+        content = response.choices[0].message.content or ""
+        parsed = _parse_component_readability_response(content)
+        readable_text = parsed["readable_text"] or str(row.get("text", "")).strip()
+        readable_texts.append(" ".join(readable_text.split()))
+        readable_rationales.append(" ".join(parsed["rationale"].split()))
+
+    updated_df["readable_text"] = readable_texts
+    updated_df["readable_rationale"] = readable_rationales
+    return updated_df

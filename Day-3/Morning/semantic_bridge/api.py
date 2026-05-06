@@ -5,6 +5,7 @@ from __future__ import annotations
 from semantic_bridge.analysis.decision_components import component_counts
 from semantic_bridge.analysis.decision_components import component_table
 from semantic_bridge.analysis.decision_components import extract_decision_components
+from semantic_bridge.analysis.decision_components import human_readable_component_table
 from semantic_bridge.constants import DEFAULT_COMPONENT_PATTERNS
 from semantic_bridge.constants import DEFAULT_DOMAIN_KEYWORDS
 from semantic_bridge.constants import DEFAULT_SCIENCE_BACKBONE
@@ -19,9 +20,17 @@ from semantic_bridge.export.tables import write_outputs_table
 from semantic_bridge.io.ckan import DEFAULT_TAPIS_URL
 from semantic_bridge.io.ckan import auth_headers
 from semantic_bridge.io.ckan import build_ckan_auth_header
+from semantic_bridge.io.ckan import build_ckan_registration_plan_with_llm
+from semantic_bridge.io.ckan import collect_pdf_resources
+from semantic_bridge.io.ckan import create_or_update_ckan_dataset
+from semantic_bridge.io.ckan import existing_resources_by_name
+from semantic_bridge.io.ckan import extract_ckan_resource_metadata_with_llm
 from semantic_bridge.io.ckan import fetch_ckan_dataset
 from semantic_bridge.io.ckan import get_tapis_token
+from semantic_bridge.io.ckan import propose_ckan_dataset_metadata_with_llm
+from semantic_bridge.io.ckan import register_pdf_corpus_with_ckan
 from semantic_bridge.io.ckan import sync_ckan_resources_to_directory
+from semantic_bridge.io.ckan import upload_pdf_resources_to_ckan
 from semantic_bridge.io.documents import SUPPORTED_DOCUMENT_SUFFIXES
 from semantic_bridge.io.documents import build_stats_table
 from semantic_bridge.io.documents import ensure_data_directory
@@ -50,6 +59,7 @@ from semantic_bridge.mapping.svo import create_svo_mappings
 from semantic_bridge.mapping.svo import deduplicate_svo_mappings
 from semantic_bridge.mapping.svo import svo_table
 from semantic_bridge.text.llm_labels import relabel_topics_with_llm
+from semantic_bridge.text.llm_labels import improve_decision_component_readability_with_llm
 from semantic_bridge.text.preprocess import preprocess_documents
 from semantic_bridge.text.preprocess import preprocess_text
 from semantic_bridge.text.topics import build_topic_summary
@@ -59,4 +69,3 @@ from semantic_bridge.viz.components import plot_component_distribution
 from semantic_bridge.viz.network import create_network_figure
 from semantic_bridge.viz.svo import plot_svo_sunburst
 from semantic_bridge.viz.topics import plot_topic_distribution
-
