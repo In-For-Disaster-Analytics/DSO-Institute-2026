@@ -1,2 +1,0 @@
-"""Notebook display helpers."""
-

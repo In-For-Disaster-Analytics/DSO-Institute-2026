@@ -1,2 +1,0 @@
-"""Mapping and vocabulary helpers."""
-
