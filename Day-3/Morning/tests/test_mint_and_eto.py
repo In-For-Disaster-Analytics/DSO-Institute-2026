@@ -33,6 +33,21 @@ def test_normalize_mint_model_candidate_builds_searchable_text():
     assert "groundwater model" in candidate["searchable_text"]
 
 
+def test_normalize_model_configuration_prefers_model_name_over_variable_label():
+    candidate = _normalize_mint_model_candidate(
+        {
+            "id": "https://w3id.org/okn/i/mint/config-1",
+            "label": "groundwater_level",
+            "hasModel": "https://w3id.org/okn/i/mint/CYCLES",
+            "description": "Configuration for groundwater runs",
+        },
+        "Model Configuration",
+    )
+
+    assert candidate["label"] == "Cycles"
+    assert candidate["model_name"] == "Cycles"
+
+
 def test_recommend_models_for_svo_mappings_ranks_relevant_candidates():
     mappings = [
         {
@@ -69,6 +84,57 @@ def test_recommend_models_for_svo_mappings_ranks_relevant_candidates():
     assert recommendations[0]["recommended_model"] == "Groundwater Flow Model"
 
 
+def test_recommend_models_for_svo_mappings_can_filter_to_selected_variables():
+    mappings = [
+        {
+            "natural_language_term": "groundwater",
+            "scientific_variable": "groundwater_level",
+            "standard_name": "depth to groundwater",
+            "units": "meters",
+            "domain": "Hydrology",
+            "data_source": "USGS",
+        },
+        {
+            "natural_language_term": "rainfall",
+            "scientific_variable": "precipitation",
+            "standard_name": "rainfall rate",
+            "units": "mm/hour",
+            "domain": "Atmospheric Science",
+            "data_source": "NOAA",
+        },
+    ]
+    model_candidates = [
+        {
+            "label": "Groundwater Flow Model",
+            "model_name": "Groundwater Flow Model",
+            "candidate_kind": "Model",
+            "categories": ["Hydrology"],
+            "keywords": ["groundwater"],
+            "description": "Simulates groundwater flow",
+            "searchable_text": "groundwater flow hydrology depth to groundwater",
+        },
+        {
+            "label": "Rainfall Runoff Model",
+            "model_name": "Rainfall Runoff Model",
+            "candidate_kind": "Model",
+            "categories": ["Atmospheric Science"],
+            "keywords": ["rainfall"],
+            "description": "Simulates rainfall runoff",
+            "searchable_text": "rainfall runoff atmospheric science rainfall rate",
+        },
+    ]
+
+    recommendations = recommend_models_for_svo_mappings(
+        mappings,
+        model_candidates,
+        recommendations_per_svo=1,
+        scientific_variables=["groundwater_level"],
+    )
+
+    assert len(recommendations) == 1
+    assert recommendations[0]["scientific_variable"] == "groundwater_level"
+
+
 def test_eto_helpers_build_urls_and_backbone():
     url = build_eto_map_url(["Hydrology", "Groundwater"], mode="map")
     assert "mode=map" in url
@@ -102,4 +168,3 @@ def test_map_topics_to_eto_clusters_matches_rows():
     assert mappings[0]["primary_domain"] == "Water Systems"
     assert mappings[0]["eto_matches"][0]["cluster_id"] == "1"
     assert query_recommendations[0]["subjects"] == ["groundwater", "aquifer"]
-

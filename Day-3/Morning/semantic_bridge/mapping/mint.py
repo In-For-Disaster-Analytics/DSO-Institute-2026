@@ -55,6 +55,19 @@ def _humanize_identifier(text: str) -> str:
     return cleaned
 
 
+def _identifier_tail(text: str) -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    value = unquote(value)
+    value = value.split("#")[-1]
+    value = value.split("?")[0]
+    value = value.rstrip("/")
+    if "/" in value:
+        value = value.rsplit("/", 1)[-1]
+    return value.strip()
+
+
 def _infer_domain_from_standard_name(standard_name: str, description: str = "") -> str:
     reference_text = f"{standard_name} {description}".upper()
     domain_rules = [
@@ -200,18 +213,32 @@ def _extract_model_candidates(payload: Any) -> list[dict[str, Any]]:
 
 
 def _normalize_mint_model_candidate(record: dict[str, Any], candidate_kind: str) -> dict[str, Any]:
-    label = _first_nonempty(record, "label", "name") or _first_nonempty(record, "id", "@id")
+    model_reference = _first_nonempty(record, "hasModel", "model")
+    model_name = _first_nonempty(record, "hasModelName", "model_name", "modelName", "title")
+    if not model_name and model_reference:
+        model_name = _identifier_tail(model_reference)
+
+    configuration_label = _first_nonempty(record, "label", "name")
+    fallback_id = _identifier_tail(_first_nonempty(record, "id", "@id"))
+    label = model_name or configuration_label or fallback_id
+
+    # Favor model names over configuration or variable labels for user-facing recommendations.
+    if candidate_kind == "Model Configuration" and model_name:
+        label = model_name
+
     description = _first_nonempty(record, "description", "shortDescription", "hasPurpose")
     keywords = _coerce_string_list(record.get("keywords"))
     categories = _coerce_string_list(record.get("hasModelCategory"))
     inputs = _coerce_string_list(record.get("hasInput"))
     outputs = _coerce_string_list(record.get("hasOutput"))
     processes = _coerce_string_list(record.get("hasProcess"))
-    text_parts = [label, description, *keywords, *categories, *inputs, *outputs, *processes]
+    text_parts = [label, model_name, configuration_label, description, *keywords, *categories, *inputs, *outputs, *processes]
     searchable_text = " ".join(_humanize_identifier(part) for part in text_parts if part).lower()
     return {
         "id": _first_nonempty(record, "id", "@id"),
-        "label": label,
+        "label": _humanize_identifier(label),
+        "model_name": _humanize_identifier(model_name) if model_name else "",
+        "configuration_label": _humanize_identifier(configuration_label) if configuration_label else "",
         "description": description,
         "keywords": keywords,
         "categories": categories,
@@ -266,9 +293,13 @@ def recommend_models_for_svo_mappings(
     unique_mappings: list[dict[str, str]],
     model_candidates: list[dict[str, Any]],
     recommendations_per_svo: int = 2,
+    scientific_variables: list[str] | set[str] | None = None,
 ) -> list[dict[str, str]]:
+    selected_variables = {value.strip() for value in (scientific_variables or []) if str(value).strip()}
     grouped = {}
     for mapping in unique_mappings:
+        if selected_variables and mapping["scientific_variable"] not in selected_variables:
+            continue
         grouped.setdefault(mapping["scientific_variable"], mapping)
 
     recommendations = []
@@ -301,7 +332,7 @@ def recommend_models_for_svo_mappings(
                     "scientific_variable": scientific_variable,
                     "standard_name": mapping["standard_name"],
                     "domain": mapping["domain"],
-                    "recommended_model": candidate["label"],
+                    "recommended_model": candidate.get("model_name") or candidate["label"],
                     "model_type": candidate["candidate_kind"],
                     "model_categories": ", ".join(candidate["categories"]),
                     "model_keywords": ", ".join(candidate["keywords"]),
@@ -358,4 +389,3 @@ def recommend_mint_queries_for_topics(
             }
         )
     return recommendations
-
