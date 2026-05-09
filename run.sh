@@ -11,6 +11,9 @@ export COOKBOOK_NAME="DSO-Summer-Institute-2026"
 export COOKBOOK_CONDA_ENV="DSO-Institute"
 export COOKBOOK_KERNEL_DISPLAY_NAME="Python (DSO-Institute)"
 export CKAN_JUPYTER_REPO_URL="https://github.com/In-For-Disaster-Analytics/ckan-jupyter.git"
+export CKAN_JUPYTER_MARKER_VERSION="repo:${CKAN_JUPYTER_REPO_URL}"
+export USE_CONDA_PACK_TARBALLS="true"
+export ENV_PACK_SEARCH_DIRS="/corral-repl/tacc/aci/PT2050/projects/PTDATAX-225"
 IS_GPU_JOB=false
 
 
@@ -103,6 +106,102 @@ function export_repo_variables() {
 	export NODE_HOSTNAME_PREFIX
 	export NODE_HOSTNAME_DOMAIN
 	export NODE_HOSTNAME_LONG
+}
+
+function init_timing_log() {
+	TIMING_LOG_FILE="${COOKBOOK_WORKSPACE_DIR}/setup_timing_${SLURM_JOB_ID:-$$}.log"
+	export TIMING_LOG_FILE
+	{
+		echo "# DSO setup timing log"
+		echo "# started_at_utc $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	} >"${TIMING_LOG_FILE}"
+}
+
+function timed_step() {
+	local step_name="$1"
+	shift
+
+	local start_epoch
+	local end_epoch
+	local duration_seconds
+	local step_status
+	local start_utc
+	local end_utc
+
+	start_epoch=$(date +%s)
+	start_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	echo "TACC: START ${step_name} at ${start_utc}"
+
+	set +e
+	"$@"
+	step_status=$?
+	set -e
+
+	end_epoch=$(date +%s)
+	end_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	duration_seconds=$((end_epoch - start_epoch))
+
+	echo "TACC: END ${step_name} status=${step_status} duration=${duration_seconds}s at ${end_utc}"
+	if [ -n "${TIMING_LOG_FILE:-}" ]; then
+		printf "%s\t%s\tstatus=%s\tduration=%ss\n" "${end_utc}" "${step_name}" "${step_status}" "${duration_seconds}" >>"${TIMING_LOG_FILE}"
+	fi
+
+	return "${step_status}"
+}
+
+function resolve_env_pack_tarball() {
+	local env_name="$1"
+	local search_dirs="${ENV_PACK_SEARCH_DIRS}"
+	local search_dir
+	local exact_tarball
+	local dated_tarball
+	local parsed_dirs=()
+
+	IFS=':' read -r -a parsed_dirs <<< "${search_dirs}"
+	for search_dir in "${parsed_dirs[@]}"; do
+		[ -z "${search_dir}" ] && continue
+		exact_tarball="${search_dir}/${env_name}.tar.gz"
+		if [ -f "${exact_tarball}" ]; then
+			echo "${exact_tarball}"
+			return 0
+		fi
+
+		dated_tarball=$(ls -1t "${search_dir}/${env_name}"-*.tar.gz 2>/dev/null | head -n 1)
+		if [ -n "${dated_tarball}" ]; then
+			echo "${dated_tarball}"
+			return 0
+		fi
+	done
+
+	return 1
+}
+
+function restore_conda_environment_from_pack() {
+	local env_name="$1"
+	local env_prefix="$WORK/miniconda3/envs/${env_name}"
+	local tarball_path
+
+	if [ "${USE_CONDA_PACK_TARBALLS}" != "true" ]; then
+		return 1
+	fi
+
+	if ! tarball_path=$(resolve_env_pack_tarball "${env_name}"); then
+		echo "TACC: No conda-pack tarball found for ${env_name}; falling back to conda env create"
+		return 1
+	fi
+
+	if [ -d "${env_prefix}" ] && [ "${UPDATE_CONDA_ENV}" != "true" ]; then
+		echo "TACC: Existing env prefix ${env_prefix} found; reusing and skipping unpack"
+		return 0
+	fi
+
+	echo "TACC: Restoring ${env_name} from ${tarball_path} into ${env_prefix}"
+	rm -rf "${env_prefix}"
+	mkdir -p "${env_prefix}"
+	tar -xzf "${tarball_path}" -C "${env_prefix}"
+	"${env_prefix}/bin/conda-unpack"
+	echo "TACC: Restored ${env_name} from conda-pack tarball"
+	return 0
 }
 
 function clone_cookbook_on_workspace() {
@@ -265,7 +364,10 @@ function session_cleanup() {
 }
 
 function conda_environment_exists() {
-	conda env list | grep "${COOKBOOK_CONDA_ENV}"
+	local env_name="$1"
+	local env_prefix="${WORK}/miniconda3/envs/${env_name}"
+
+	[ -d "${env_prefix}" ]
 }
 
 function configure_nltk_data() {
@@ -290,11 +392,59 @@ PY
 }
 
 function install_ckan_jupyter_extension() {
+	local marker_version="${CKAN_JUPYTER_MARKER_VERSION}"
+	local ckan_marker_script
+
+	ckan_marker_script="$(mktemp)"
+	cat <<'PY' >"${ckan_marker_script}"
+from pathlib import Path
+import os
+import sys
+import site
+
+expected = os.environ["CKAN_JUPYTER_MARKER_VERSION"]
+env_prefix = Path(sys.prefix)
+site_packages = [Path(path) for path in site.getsitepackages()]
+candidate_roots = site_packages + [env_prefix]
+marker_path = env_prefix / "share" / "jupyter" / "labextensions" / "@dso" / "ckan-jupyter" / ".install-marker"
+
+try:
+    import ckan_jupyter  # noqa: F401
+except Exception:
+    print("ckan_jupyter import check failed; installation is required")
+    raise SystemExit(3)
+
+lab_source = None
+for root in candidate_roots:
+    candidate = root / "ckan_jupyter" / "labextension"
+    if candidate.is_dir() and (candidate / "package.json").is_file():
+        lab_source = candidate
+        break
+
+if lab_source is None:
+    print("ckan_jupyter labextension source is missing; installation is required")
+    raise SystemExit(4)
+
+if marker_path.is_file() and marker_path.read_text().strip() == expected:
+    print(f"ckan-jupyter marker matches ({expected}); skipping reinstall")
+    raise SystemExit(0)
+
+print("ckan-jupyter marker missing or changed; installation is required")
+raise SystemExit(5)
+PY
+
+	if conda run -n "${COOKBOOK_CONDA_ENV}" env CKAN_JUPYTER_MARKER_VERSION="${marker_version}" python "${ckan_marker_script}"; then
+		rm -f "${ckan_marker_script}"
+		return 0
+	fi
+	rm -f "${ckan_marker_script}"
+
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m pip install --no-cache-dir --no-build-isolation "git+${CKAN_JUPYTER_REPO_URL}"
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m jupyter server extension enable --sys-prefix --py ckan_jupyter
 	CKAN_JUPYTER_COPY_SCRIPT="$(mktemp)"
-	cat <<'PY' > "${CKAN_JUPYTER_COPY_SCRIPT}"
+cat <<'PY' > "${CKAN_JUPYTER_COPY_SCRIPT}"
 from pathlib import Path
+import os
 import shutil
 import site
 import sys
@@ -320,9 +470,11 @@ if lab_dest.exists():
     shutil.rmtree(lab_dest)
 
 shutil.copytree(lab_source, lab_dest)
+marker_path = lab_dest / ".install-marker"
+marker_path.write_text(os.environ["CKAN_JUPYTER_MARKER_VERSION"] + "\n")
 print(f"Installed ckan-jupyter labextension to {lab_dest}")
 PY
-	conda run -n "${COOKBOOK_CONDA_ENV}" python "${CKAN_JUPYTER_COPY_SCRIPT}"
+	conda run -n "${COOKBOOK_CONDA_ENV}" env CKAN_JUPYTER_MARKER_VERSION="${marker_version}" python "${CKAN_JUPYTER_COPY_SCRIPT}"
 	rm -f "${CKAN_JUPYTER_COPY_SCRIPT}"
 }
 
@@ -410,6 +562,11 @@ function create_conda_environment() {
 		exit 1
 	fi
 
+	if timed_step "restore_conda_pack:${ENV_NAME}" restore_conda_environment_from_pack "${ENV_NAME}"; then
+		echo "TACC: ${ENV_NAME} ready from conda-pack tarball"
+		return 0
+	fi
+
 	if [ ! -f "${ENV_FILE}" ]; then
 		echo "TACC: ERROR - Environment file not found: ${ENV_FILE}"
 		exit 1
@@ -425,7 +582,7 @@ function create_conda_environment() {
 
 	if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
 		download_opera_setup_env
-		install_displacement_tools "${ENV_NAME}"
+		timed_step "install_displacement_tools:${ENV_NAME}" install_displacement_tools "${ENV_NAME}"
 	fi
 
 	conda run -n "${ENV_NAME}" python -m ipykernel install \
@@ -435,30 +592,48 @@ function create_conda_environment() {
 }
 
 function delete_conda_environment() {
-	conda deactivate
-	conda env remove -n ${COOKBOOK_CONDA_ENV}
+	local env_name="$1"
+	local env_prefix="${WORK}/miniconda3/envs/${env_name}"
+
+	if [ ! -d "${env_prefix}" ]; then
+		echo "TACC: Conda environment ${env_name} not present; skipping remove"
+		return 0
+	fi
+
+	echo "TACC: Removing conda environment ${env_name}"
+	conda env remove -n "${env_name}" --yes || rm -rf "${env_prefix}"
 }
 function handle_installation() {
     if [ "${UPDATE_CONDA_ENV}" = "true" ]; then
-        if { conda_environment_exists; } >/dev/null 2>&1; then
-            delete_conda_environment
-        fi
+        timed_step "delete_conda_environment:${COOKBOOK_CONDA_ENV}" delete_conda_environment "${COOKBOOK_CONDA_ENV}"
+        timed_step "delete_conda_environment:h2iUTA" delete_conda_environment "h2iUTA"
         
         # Launch all 3 in the background
-        create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
-        create_conda_environment h2iUTA.yaml "h2iUTA" 
+        timed_step "create_conda_environment:${COOKBOOK_CONDA_ENV}" create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
+        timed_step "create_conda_environment:h2iUTA" create_conda_environment h2iUTA.yaml "h2iUTA"
         # create_conda_environment werc.yaml "werc" 
         
         # Wait for all background processes to finish
         wait
         
     else
-        if { conda_environment_exists; } >/dev/null 2>&1; then
-            echo "Conda environment already exists"
+        needs_wait=false
+
+        if ! { conda_environment_exists "${COOKBOOK_CONDA_ENV}"; } >/dev/null 2>&1; then
+            timed_step "create_conda_environment:${COOKBOOK_CONDA_ENV}" create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
+            needs_wait=true
         else
-            create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
-            create_conda_environment h2iUTA.yaml "h2iUTA" 
-            # create_conda_environment werc.yaml "werc" 
+            echo "Conda environment ${COOKBOOK_CONDA_ENV} already exists"
+        fi
+
+        if ! { conda_environment_exists "h2iUTA"; } >/dev/null 2>&1; then
+            timed_step "create_conda_environment:h2iUTA" create_conda_environment h2iUTA.yaml "h2iUTA"
+        else
+            echo "Conda environment h2iUTA already exists"
+        fi
+
+        # create_conda_environment werc.yaml "werc"
+        if [ "${needs_wait}" = "true" ]; then
             wait
         fi
     fi
@@ -473,12 +648,13 @@ if [ "$IS_GPU_JOB" = "true" ]; then
 fi
 export_repo_variables
 init_directory
+init_timing_log
 load_tap_functions
 get_tap_certificate
 get_tap_token
 create_jupyter_configuration
 handle_installation
-install_ckan_jupyter_extension
+timed_step "install_ckan_jupyter_extension:${COOKBOOK_CONDA_ENV}" install_ckan_jupyter_extension
 
 run_jupyter
 port_fowarding
