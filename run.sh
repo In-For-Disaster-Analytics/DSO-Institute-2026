@@ -30,6 +30,22 @@ fi
 export DOWNLOAD_LATEST_VERSION=$1
 export UPDATE_CONDA_ENV=$2
 export GIT_BRANCH=$3
+
+function init_job_condarc() {
+    # Use an isolated CONDARC so user-level ~/.condarc alias conflicts
+    # (e.g., auto_activate + auto_activate_base) cannot break this job.
+    export CONDARC="${WORK}/.condarc-${SLURM_JOB_ID:-$$}.yaml"
+    cat > "${CONDARC}" <<'EOF'
+auto_activate: false
+channel_priority: strict
+solver: libmamba
+channels:
+  - conda-forge
+  - defaults
+EOF
+    echo "Using isolated CONDARC at ${CONDARC}"
+}
+
 function install_conda() {
     echo "Checking if Miniforge/mamba is installed..."
 
@@ -61,9 +77,7 @@ function install_conda() {
         source "$CONDA_ROOT/etc/profile.d/mamba.sh"
     fi
 
-	conda config --set auto_activate false
-    conda config --set channel_priority strict
-    conda config --set solver libmamba || true
+    init_job_condarc
 
     unset PYTHONPATH
 
@@ -389,8 +403,6 @@ function create_conda_environment() {
 	ENV_FILENAME="$1"
 	ENV_NAME="$2"
 	ENV_FILE="${COOKBOOK_WORKSPACE_DIR}/.binder/${ENV_FILENAME}"
-	conda config --set channel_priority strict
-	conda config --set solver libmamba 
 
 	if [ -z "${ENV_FILENAME}" ]; then
 		echo "TACC: ERROR - No environment file name provided"
