@@ -47,42 +47,38 @@ EOF
 }
 
 function install_conda() {
-    echo "Checking if Miniforge/mamba is installed..."
+	CONDA_ROOT="$WORK/miniconda3"
+	CONDA_BIN="$CONDA_ROOT/bin/conda"
+	CONDA_INSTALLER="$CONDA_ROOT/miniconda.sh"
 
-    export CONDA_ROOT="$WORK/miniforge3"
-    export PATH="$CONDA_ROOT/bin:$PATH"
+	echo "Checking if miniconda3 is installed..."
+	if [ ! -x "$CONDA_BIN" ]; then
+		echo "Miniconda missing or incomplete in $CONDA_ROOT..."
+		echo "Installing..."
+		rm -rf "$CONDA_ROOT"
+		mkdir -p "$CONDA_ROOT"
+		curl https://repo.anaconda.com/miniconda/Miniconda3-py311_23.10.0-1-Linux-x86_64.sh -o "$CONDA_INSTALLER"
+		bash "$CONDA_INSTALLER" -b -u -p "$CONDA_ROOT"
+		rm -f "$CONDA_INSTALLER"
+	fi
 
-    # Reinstall if the directory is missing OR mamba is missing
-    if [ ! -x "$CONDA_ROOT/bin/mamba" ]; then
-        echo "Mamba not found at $CONDA_ROOT/bin/mamba. Reinstalling Miniforge..."
+	export PATH="$CONDA_ROOT/bin:$PATH"
+	if ! command -v conda >/dev/null 2>&1; then
+		echo "ERROR: conda command is not available after installation/setup"
+		exit 1
+	fi
 
-        rm -rf "$CONDA_ROOT"
-        mkdir -p "$CONDA_ROOT"
+	echo "Ensuring conda base environment is OFF..."
+	"$CONDA_BIN" config --set auto_activate_base false
 
-        curl -L \
-            https://github.com/conda-forge/miniforge/releases/download/26.3.2-0/Miniforge3-26.3.2-0-Linux-x86_64.sh \
-            -o "$WORK/miniforge3.sh"
-
-        bash "$WORK/miniforge3.sh" -b -u -p "$CONDA_ROOT"
-        rm -f "$WORK/miniforge3.sh"
-
-        export PATH="$CONDA_ROOT/bin:$PATH"
-    fi
-
-    # Make conda available in this non-interactive shell
-    source "$CONDA_ROOT/etc/profile.d/conda.sh"
-
-    # Optional but useful if mamba shell hook exists
-    if [ -f "$CONDA_ROOT/etc/profile.d/mamba.sh" ]; then
-        source "$CONDA_ROOT/etc/profile.d/mamba.sh"
-    fi
-
-    init_job_condarc
-
-    unset PYTHONPATH
-
-    echo "Using conda: $(which conda)"
-    echo "Using mamba: $(which mamba || echo 'mamba not found')"
+	# Initialize conda for this non-interactive shell without depending on ~/.bashrc edits.
+	if [ -f "$CONDA_ROOT/etc/profile.d/conda.sh" ]; then
+		# shellcheck source=/dev/null
+		source "$CONDA_ROOT/etc/profile.d/conda.sh"
+	else
+		eval "$("$CONDA_BIN" shell.bash hook)"
+	fi
+	unset PYTHONPATH
 }
 
 function load_cuda() {

@@ -1,6 +1,6 @@
 {
   "id": "DSO-Institute-2026-app-cpu",
-  "version": "0.0.b24e472",
+  "version": "0.0.b24e4272",
   "description": "Jupyter Lab environment for CPU",
   "owner": "${apiUserId}",
   "enabled": true,
