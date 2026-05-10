@@ -370,6 +370,7 @@ function port_fowarding() {
 	TUNNEL_LOGFILE="${HOME}/.jupyter/${NODE_HOSTNAME_PREFIX}-ssh-tunnels.log"
 	local ssh_status=0
 	local login_node=""
+	local successful_login_node=""
 	# Disable exit on error so we can check the ssh tunnel status.
 	set +e
 	: > "${TUNNEL_LOGFILE}"
@@ -380,10 +381,16 @@ function port_fowarding() {
 		ssh_status=$?
 		if [ "${ssh_status}" -ne 0 ]; then
 			echo "TACC: ERROR - reverse tunnel setup failed on ${login_node} with exit code ${ssh_status}" | tee -a "${TUNNEL_LOGFILE}"
-			break
+			continue
+		fi
+
+		if [ -z "${successful_login_node}" ]; then
+			successful_login_node="${login_node}"
 		fi
 	done
-	if [ "${ssh_status}" -ne 0 ]; then
+	set -e
+
+	if [ -z "${successful_login_node}" ]; then
 		# jupyter will not be working today. sadness.
 		echo "TACC: ERROR - ssh tunnels failed to launch"
 		echo "TACC: ERROR - this is often due to an issue with your ssh keys"
@@ -394,12 +401,15 @@ function port_fowarding() {
 		echo "TACC: job ${SLURM_JOB_ID} execution finished at: $(date)"
 		exit 1
 	fi
-	# Re-enable exit on error.
-	set -e
+
+	JUPYTER_PUBLIC_HOST="${successful_login_node}.${NODE_HOSTNAME_DOMAIN}"
+	export JUPYTER_PUBLIC_HOST
+	echo "TACC: using public login host ${JUPYTER_PUBLIC_HOST}" | tee -a "${TUNNEL_LOGFILE}"
 }
 
 function send_url_to_webhook() {
-	JUPYTER_URL="https://${NODE_HOSTNAME_DOMAIN}:${LOGIN_PORT}/?token=${TAP_TOKEN}"
+	JUPYTER_PUBLIC_HOST="${JUPYTER_PUBLIC_HOST:-${NODE_HOSTNAME_DOMAIN}}"
+	JUPYTER_URL="https://${JUPYTER_PUBLIC_HOST}:${LOGIN_PORT}/?token=${TAP_TOKEN}"
 	INTERACTIVE_WEBHOOK_URL="${_webhook_base_url}"
 	# Wait a few seconds for jupyter to boot up and send webhook callback url for job ready notification.
 	# Notification is sent to _INTERACTIVE_WEBHOOK_URL, e.g. https://3dem.org/webhooks/interactive/
