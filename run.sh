@@ -367,15 +367,28 @@ PY
 function port_fowarding() {
 	LOCAL_PORT=5902
 	LOGIN_NODE_COUNT=3
+	TUNNEL_LOGFILE="${HOME}/.jupyter/${NODE_HOSTNAME_PREFIX}-ssh-tunnels.log"
+	local ssh_status=0
+	local login_node=""
 	# Disable exit on error so we can check the ssh tunnel status.
 	set +e
+	: > "${TUNNEL_LOGFILE}"
 	for i in $(seq ${LOGIN_NODE_COUNT}); do
-		ssh -o StrictHostKeyChecking=no -q -f -g -N -R ${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT} login${i}
+		login_node="login${i}"
+		echo "TACC: opening reverse tunnel on ${login_node}" | tee -a "${TUNNEL_LOGFILE}"
+		ssh -o StrictHostKeyChecking=no -f -g -N -R ${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT} "${login_node}" >>"${TUNNEL_LOGFILE}" 2>&1
+		ssh_status=$?
+		if [ "${ssh_status}" -ne 0 ]; then
+			echo "TACC: ERROR - reverse tunnel setup failed on ${login_node} with exit code ${ssh_status}" | tee -a "${TUNNEL_LOGFILE}"
+			break
+		fi
 	done
-	if [ "$(ps -fu ${USER} | grep ssh | grep "login[1-9]" | grep -vc grep)" != "${LOGIN_NODE_COUNT}" ]; then
+	if [ "${ssh_status}" -ne 0 ]; then
 		# jupyter will not be working today. sadness.
 		echo "TACC: ERROR - ssh tunnels failed to launch"
 		echo "TACC: ERROR - this is often due to an issue with your ssh keys"
+		echo "TACC: ERROR - ssh tunnel logfile contents:"
+		cat "${TUNNEL_LOGFILE}"
 		echo "TACC: ERROR - undo any recent mods in ${HOME}/.ssh"
 		echo "TACC: ERROR - or submit a TACC consulting ticket with this error"
 		echo "TACC: job ${SLURM_JOB_ID} execution finished at: $(date)"
