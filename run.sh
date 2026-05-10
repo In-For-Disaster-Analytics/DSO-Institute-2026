@@ -410,7 +410,13 @@ function port_fowarding() {
 function send_url_to_webhook() {
 	JUPYTER_PUBLIC_HOST="${JUPYTER_PUBLIC_HOST:-${NODE_HOSTNAME_DOMAIN}}"
 	JUPYTER_URL="https://${JUPYTER_PUBLIC_HOST}:${LOGIN_PORT}/?token=${TAP_TOKEN}"
-	INTERACTIVE_WEBHOOK_URL="${_webhook_base_url}"
+	INTERACTIVE_WEBHOOK_URL="${_webhook_base_url:-${_INTERACTIVE_WEBHOOK_URL:-}}"
+	echo "TACC:     JUPYTER_URL is ${JUPYTER_URL}"
+	if [ -z "${INTERACTIVE_WEBHOOK_URL}" ]; then
+		echo "TACC: WARNING - interactive webhook URL is not set; skipping callback"
+		echo "TACC: WARNING - open the Jupyter URL above directly if the portal does not redirect automatically"
+		return 0
+	fi
 	# Wait a few seconds for jupyter to boot up and send webhook callback url for job ready notification.
 	# Notification is sent to _INTERACTIVE_WEBHOOK_URL, e.g. https://3dem.org/webhooks/interactive/
 	(
