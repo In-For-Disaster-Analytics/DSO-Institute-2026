@@ -625,6 +625,7 @@ function create_conda_environment() {
 	ENV_FILENAME="$1"
 	ENV_NAME="$2"
 	ENV_FILE="${COOKBOOK_WORKSPACE_DIR}/.binder/${ENV_FILENAME}"
+	local restored_from_tarball="false"
 
 	if [ -z "${ENV_FILENAME}" ]; then
 		echo "TACC: ERROR - No environment file name provided"
@@ -636,27 +637,34 @@ function create_conda_environment() {
 		exit 1
 	fi
 
-	if timed_step "restore_conda_pack:${ENV_NAME}" restore_conda_environment_from_pack "${ENV_NAME}"; then
-		echo "TACC: ${ENV_NAME} ready from conda-pack tarball"
-		return 0
+	if [ "${USE_CONDA_PACK_TARBALLS}" = "true" ]; then
+		if timed_step "restore_conda_pack:${ENV_NAME}" restore_conda_environment_from_pack "${ENV_NAME}"; then
+			echo "TACC: ${ENV_NAME} ready from conda-pack tarball"
+			restored_from_tarball="true"
+		else
+			echo "TACC: ERROR - failed to restore ${ENV_NAME} from conda-pack tarball"
+			return 1
+		fi
 	fi
 
-	if [ ! -f "${ENV_FILE}" ]; then
-		echo "TACC: ERROR - Environment file not found: ${ENV_FILE}"
-		exit 1
-	fi
+	if [ "${restored_from_tarball}" != "true" ]; then
+		if [ ! -f "${ENV_FILE}" ]; then
+			echo "TACC: ERROR - Environment file not found: ${ENV_FILE}"
+			exit 1
+		fi
 
-	echo "Creating conda environment '${ENV_NAME}' from ${ENV_FILE}"
-	conda env create -n "${ENV_NAME}" -f "${ENV_FILE}" --yes 
+		echo "Creating conda environment '${ENV_NAME}' from ${ENV_FILE}"
+		conda env create -n "${ENV_NAME}" -f "${ENV_FILE}" --yes
 
-	if [ -f "${COOKBOOK_WORKSPACE_DIR}/.binder/requirements.txt" ]; then
-		echo "Installing shared requirements.txt into ${ENV_NAME}"
-		conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir -r "${COOKBOOK_WORKSPACE_DIR}/.binder/requirements.txt"
-	fi
+		if [ -f "${COOKBOOK_WORKSPACE_DIR}/.binder/requirements.txt" ]; then
+			echo "Installing shared requirements.txt into ${ENV_NAME}"
+			conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir -r "${COOKBOOK_WORKSPACE_DIR}/.binder/requirements.txt"
+		fi
 
-	if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
-		download_opera_setup_env
-		timed_step "install_displacement_tools:${ENV_NAME}" install_displacement_tools "${ENV_NAME}"
+		if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
+			download_opera_setup_env
+			timed_step "install_displacement_tools:${ENV_NAME}" install_displacement_tools "${ENV_NAME}"
+		fi
 	fi
 
 	conda run -n "${ENV_NAME}" python -m ipykernel install \
