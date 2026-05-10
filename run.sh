@@ -180,6 +180,7 @@ function restore_conda_environment_from_pack() {
 	local env_name="$1"
 	local env_prefix="$WORK/miniconda3/envs/${env_name}"
 	local tarball_path
+	local unpack_status
 
 	if [ "${USE_CONDA_PACK_TARBALLS}" != "true" ]; then
 		return 1
@@ -198,8 +199,27 @@ function restore_conda_environment_from_pack() {
 	echo "TACC: Restoring ${env_name} from ${tarball_path} into ${env_prefix}"
 	rm -rf "${env_prefix}"
 	mkdir -p "${env_prefix}"
-	tar -xzf "${tarball_path}" -C "${env_prefix}"
+	if ! tar -xzf "${tarball_path}" -C "${env_prefix}"; then
+		echo "TACC: Unable to extract ${tarball_path}; falling back to conda env create"
+		rm -rf "${env_prefix}"
+		return 1
+	fi
+
+	if [ ! -x "${env_prefix}/bin/conda-unpack" ]; then
+		echo "TACC: Restored env ${env_name} is missing conda-unpack; falling back to conda env create"
+		rm -rf "${env_prefix}"
+		return 1
+	fi
+
+	set +e
 	"${env_prefix}/bin/conda-unpack"
+	unpack_status=$?
+	set -e
+	if [ "${unpack_status}" -ne 0 ]; then
+		echo "TACC: conda-unpack failed for ${env_name}; falling back to conda env create"
+		rm -rf "${env_prefix}"
+		return 1
+	fi
 	echo "TACC: Restored ${env_name} from conda-pack tarball"
 	return 0
 }
@@ -301,17 +321,41 @@ function run_jupyter() {
 	touch $JUPYTER_LOGFILE
 	nohup ${JUPYTER_BIN} ${JUPYTER_ARGS} &>${JUPYTER_LOGFILE} &
 	JUPYTER_PID=$!
-	# verify jupyter is up. if not, give one more try, then bail
-	if ! $(ps -fu ${USER} | grep ${JUPYTER_BIN} | grep -qv grep); then
+	sleep 5
+	# verify jupyter is listening. if not, give it one more try, then bail
+	if ! python - <<PY
+import socket
+sock = socket.socket()
+sock.settimeout(1)
+try:
+    sock.connect(("127.0.0.1", 5902))
+except OSError:
+    raise SystemExit(1)
+finally:
+    sock.close()
+PY
+	then
 		# sometimes jupyter has a bad day. give it another chance to be awesome.
 		echo "TACC: first jupyter launch failed. Retrying..."
 		nohup ${JUPYTER_BIN} ${JUPYTER_ARGS} &>${JUPYTER_LOGFILE} &
+		sleep 5
 	fi
 
-	if ! $(ps -fu ${USER} | grep ${JUPYTER_BIN} | grep -qv grep); then
+	if ! python - <<PY
+import socket
+sock = socket.socket()
+sock.settimeout(1)
+try:
+    sock.connect(("127.0.0.1", 5902))
+except OSError:
+    raise SystemExit(1)
+finally:
+    sock.close()
+PY
+	then
 		# jupyter will not be working today. sadness.
 		echo "TACC: ERROR - jupyter failed to launch"
-		echo "TACC: ERROR - this is often due to an issue in your python or conda environment"
+		echo "TACC: ERROR - this is often due to an issue in your python or conda environment, or Jupyter failing to bind its port"
 		echo "TACC: ERROR - jupyter logfile contents:"
 		cat ${JUPYTER_LOGFILE}
 		echo "TACC: job ${SLURM_JOB_ID} execution finished at: $(date)"
@@ -322,12 +366,13 @@ function run_jupyter() {
 
 function port_fowarding() {
 	LOCAL_PORT=5902
+	LOGIN_NODE_COUNT=3
 	# Disable exit on error so we can check the ssh tunnel status.
 	set +e
-	for i in $(seq 2); do
+	for i in $(seq ${LOGIN_NODE_COUNT}); do
 		ssh -o StrictHostKeyChecking=no -q -f -g -N -R ${LOGIN_PORT}:${NODE_HOSTNAME_PREFIX}:${LOCAL_PORT} login${i}
 	done
-	if [ $(ps -fu ${USER} | grep ssh | grep login | grep -vc grep) != 2 ]; then
+	if [ "$(ps -fu ${USER} | grep ssh | grep "login[1-9]" | grep -vc grep)" != "${LOGIN_NODE_COUNT}" ]; then
 		# jupyter will not be working today. sadness.
 		echo "TACC: ERROR - ssh tunnels failed to launch"
 		echo "TACC: ERROR - this is often due to an issue with your ssh keys"
@@ -347,7 +392,7 @@ function send_url_to_webhook() {
 	# Notification is sent to _INTERACTIVE_WEBHOOK_URL, e.g. https://3dem.org/webhooks/interactive/
 	(
 		sleep 5 &&
-			curl -k --data "event_type=interactive_session_ready&address=${JUPYTER_URL}&owner=${_tapisJobOwner}&job_uuid=${_tapisJobUUID}" "${_INTERACTIVE_WEBHOOK_URL}" &
+			curl -k --data "event_type=interactive_session_ready&address=${JUPYTER_URL}&owner=${_tapisJobOwner}&job_uuid=${_tapisJobUUID}" "${INTERACTIVE_WEBHOOK_URL}" &
 	) &
 
 }
