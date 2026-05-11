@@ -31,16 +31,14 @@
       "appArgs": [
         {
           "name": "Update cookbook",
-          "description": "Control whether the system will update the existing cookbook with the latest version available. This option is irrelevant if you are running the cookbook for the first time.",
+          "description": "Cookbook updates run automatically on every startup.",
           "inputMode": "REQUIRED",
-          "arg": "false",
+          "arg": "true",
           "notes": {
+            "isHidden": true,
             "enum_values": [
               {
-                "true": "Update to latest version"
-              },
-              {
-                "false": "Keep current version"
+                "true": "Always update on startup"
               }
             ]
           }

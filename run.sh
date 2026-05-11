@@ -18,19 +18,19 @@ IS_GPU_JOB=false
 
 
 # Cookbook Variables
-# DOWNLOAD_LATEST_VERSION: Boolean value to download the latest version of the repository
+# PARAM 1 is kept for app compatibility. Repository updates now run on every startup.
 # UPDATE_CONDA_ENV: Boolean value to update the conda environment
 # GIT_BRANCH: Branch of the repository to clone
-if [ "$1" != "true" ] && [ "$1" != "false" ]; then
-	echo "The first parameter must be a boolean value to recreate the environment"
-	exit 1
-fi
 if [ "$#" -ne 3 ]; then
 	echo "Illegal number of parameters"
 	exit 1
 fi
+if [ "$2" != "true" ] && [ "$2" != "false" ]; then
+	echo "The second parameter must be a boolean value to update the conda environment"
+	exit 1
+fi
 
-export DOWNLOAD_LATEST_VERSION=$1
+export DOWNLOAD_LATEST_VERSION="true"
 export UPDATE_CONDA_ENV=$2
 export GIT_BRANCH=$3
 
@@ -95,6 +95,7 @@ function export_repo_variables() {
 	COOKBOOK_REPOSITORY_PARENT_DIR=${COOKBOOK_DIR}/.repository
 	COOKBOOK_REPOSITORY_DIR=${COOKBOOK_REPOSITORY_PARENT_DIR}/${COOKBOOK_NAME}
 	UPDATE_AVAILABLE_FILE=${COOKBOOK_WORKSPACE_DIR}/UPDATE_AVAILABLE.txt
+	WORKSPACE_SYNC_STATE_FILE=${COOKBOOK_WORKSPACE_DIR}/.cookbook-sync-commit
 	NODE_HOSTNAME_PREFIX=$(hostname -s) # Short Host Name  -->  name of compute node: c###-###
 	NODE_HOSTNAME_DOMAIN=$(hostname -d) # DNS Name  -->  stampede2.tacc.utexas.edu
 	NODE_HOSTNAME_LONG=$(hostname -f)   # Fully Qualified Domain Name  -->  c###-###.stampede2.tacc.utexas.edu
@@ -103,6 +104,7 @@ function export_repo_variables() {
 	export COOKBOOK_REPOSITORY_DIR
 	export COOKBOOK_REPOSITORY_PARENT_DIR
 	export UPDATE_AVAILABLE_FILE
+	export WORKSPACE_SYNC_STATE_FILE
 	export NODE_HOSTNAME_PREFIX
 	export NODE_HOSTNAME_DOMAIN
 	export NODE_HOSTNAME_LONG
@@ -183,30 +185,31 @@ function restore_conda_environment_from_pack() {
 	local unpack_status
 
 	if [ "${USE_CONDA_PACK_TARBALLS}" != "true" ]; then
+		echo "TACC: TARBALL_RESTORE_DISABLED env=${env_name}"
 		return 1
 	fi
 
 	if ! tarball_path=$(resolve_env_pack_tarball "${env_name}"); then
-		echo "TACC: No conda-pack tarball found for ${env_name}; falling back to conda env create"
+		echo "TACC: TARBALL_RESTORE_MISSING env=${env_name} search_dirs=${ENV_PACK_SEARCH_DIRS}"
 		return 1
 	fi
 
 	if [ -d "${env_prefix}" ] && [ "${UPDATE_CONDA_ENV}" != "true" ]; then
-		echo "TACC: Existing env prefix ${env_prefix} found; reusing and skipping unpack"
+		echo "TACC: TARBALL_RESTORE_REUSE env=${env_name} prefix=${env_prefix}"
 		return 0
 	fi
 
-	echo "TACC: Restoring ${env_name} from ${tarball_path} into ${env_prefix}"
+	echo "TACC: TARBALL_RESTORE_START env=${env_name} tarball=${tarball_path} prefix=${env_prefix}"
 	rm -rf "${env_prefix}"
 	mkdir -p "${env_prefix}"
 	if ! tar -xzf "${tarball_path}" -C "${env_prefix}"; then
-		echo "TACC: Unable to extract ${tarball_path}; falling back to conda env create"
+		echo "TACC: TARBALL_RESTORE_EXTRACT_FAILED env=${env_name} tarball=${tarball_path}"
 		rm -rf "${env_prefix}"
 		return 1
 	fi
 
 	if [ ! -x "${env_prefix}/bin/conda-unpack" ]; then
-		echo "TACC: Restored env ${env_name} is missing conda-unpack; falling back to conda env create"
+		echo "TACC: TARBALL_RESTORE_MISSING_UNPACK env=${env_name} prefix=${env_prefix}"
 		rm -rf "${env_prefix}"
 		return 1
 	fi
@@ -216,29 +219,166 @@ function restore_conda_environment_from_pack() {
 	unpack_status=$?
 	set -e
 	if [ "${unpack_status}" -ne 0 ]; then
-		echo "TACC: conda-unpack failed for ${env_name}; falling back to conda env create"
+		echo "TACC: TARBALL_RESTORE_UNPACK_FAILED env=${env_name} prefix=${env_prefix} status=${unpack_status}"
 		rm -rf "${env_prefix}"
 		return 1
 	fi
-	echo "TACC: Restored ${env_name} from conda-pack tarball"
+	echo "TACC: TARBALL_RESTORE_DONE env=${env_name} prefix=${env_prefix}"
 	return 0
 }
 
-function clone_cookbook_on_workspace() {
-	DATE_FILE_SUFFIX=$(date +%Y%m%d%H%M%S)
-	if [ ! -d "$COOKBOOK_WORKSPACE_DIR" ]; then
-		git clone ${GIT_REPO_URL} --branch ${GIT_BRANCH} ${COOKBOOK_WORKSPACE_DIR}
-	else
-		if [ ${DOWNLOAD_LATEST_VERSION} = "true" ]; then
-			mv ${COOKBOOK_WORKSPACE_DIR} ${COOKBOOK_WORKSPACE_DIR}-${DATE_FILE_SUFFIX}
-			git clone ${GIT_REPO_URL} --branch ${GIT_BRANCH} ${COOKBOOK_WORKSPACE_DIR}
-		fi
+function update_cookbook_repository() {
+	COOKBOOK_REPOSITORY_PREVIOUS_HEAD=""
+	COOKBOOK_REPOSITORY_CURRENT_HEAD=""
+
+	if [ ! -d "${COOKBOOK_REPOSITORY_DIR}/.git" ]; then
+		rm -rf "${COOKBOOK_REPOSITORY_DIR}"
+		git clone "${GIT_REPO_URL}" --branch "${GIT_BRANCH}" "${COOKBOOK_REPOSITORY_DIR}"
+		COOKBOOK_REPOSITORY_CURRENT_HEAD=$(git -C "${COOKBOOK_REPOSITORY_DIR}" rev-parse HEAD)
+		return 0
 	fi
+
+	git -C "${COOKBOOK_REPOSITORY_DIR}" checkout "${GIT_BRANCH}"
+	COOKBOOK_REPOSITORY_PREVIOUS_HEAD=$(git -C "${COOKBOOK_REPOSITORY_DIR}" rev-parse HEAD)
+
+	if [ "${DOWNLOAD_LATEST_VERSION}" = "true" ]; then
+		git -C "${COOKBOOK_REPOSITORY_DIR}" fetch origin "${GIT_BRANCH}"
+		git -C "${COOKBOOK_REPOSITORY_DIR}" checkout "${GIT_BRANCH}"
+		git -C "${COOKBOOK_REPOSITORY_DIR}" reset --hard "origin/${GIT_BRANCH}"
+	fi
+
+	COOKBOOK_REPOSITORY_CURRENT_HEAD=$(git -C "${COOKBOOK_REPOSITORY_DIR}" rev-parse HEAD)
+}
+
+function read_workspace_sync_commit() {
+	if [ -f "${WORKSPACE_SYNC_STATE_FILE}" ]; then
+		cat "${WORKSPACE_SYNC_STATE_FILE}"
+	fi
+}
+
+function write_workspace_sync_commit() {
+	printf "%s\n" "${COOKBOOK_REPOSITORY_CURRENT_HEAD}" > "${WORKSPACE_SYNC_STATE_FILE}"
+}
+
+function copy_repo_file_to_workspace() {
+	local relative_path="$1"
+	local source_path="${COOKBOOK_REPOSITORY_DIR}/${relative_path}"
+	local target_path="${COOKBOOK_WORKSPACE_DIR}/${relative_path}"
+
+	mkdir -p "$(dirname "${target_path}")"
+	cp -p "${source_path}" "${target_path}"
+}
+
+function workspace_file_matches_repo_commit() {
+	local relative_path="$1"
+	local commit_ref="$2"
+	local workspace_path="${COOKBOOK_WORKSPACE_DIR}/${relative_path}"
+
+	if [ ! -f "${workspace_path}" ]; then
+		return 1
+	fi
+
+	if ! git -C "${COOKBOOK_REPOSITORY_DIR}" cat-file -e "${commit_ref}:${relative_path}" 2>/dev/null; then
+		return 1
+	fi
+
+	if git -C "${COOKBOOK_REPOSITORY_DIR}" show "${commit_ref}:${relative_path}" | cmp -s - "${workspace_path}"; then
+		return 0
+	fi
+
+	return 1
+}
+
+function record_workspace_update_notice() {
+	local message="$1"
+	local relative_path="$2"
+
+	if [ ! -f "${UPDATE_AVAILABLE_FILE}" ]; then
+		cat <<'EOF' > "${UPDATE_AVAILABLE_FILE}"
+Repository updates were skipped for the files below because the local copy was changed.
+Review these files and merge any needed updates manually.
+
+EOF
+	fi
+
+	printf "%s: %s\n" "${message}" "${relative_path}" >> "${UPDATE_AVAILABLE_FILE}"
+}
+
+function sync_cookbook_workspace() {
+	mkdir -p "${COOKBOOK_WORKSPACE_DIR}"
+	rsync -a --exclude '.git' "${COOKBOOK_REPOSITORY_DIR}/" "${COOKBOOK_WORKSPACE_DIR}/"
+	write_workspace_sync_commit
+	rm -f "${UPDATE_AVAILABLE_FILE}"
+}
+
+function sync_cookbook_workspace_updates() {
+	local base_commit="$1"
+	local relative_path=""
+	local workspace_path=""
+
+	if [ -z "${base_commit}" ]; then
+		return 0
+	fi
+
+	rm -f "${UPDATE_AVAILABLE_FILE}"
+
+	# Only replace files that still match the last synced commit.
+	while IFS= read -r -d '' relative_path; do
+		workspace_path="${COOKBOOK_WORKSPACE_DIR}/${relative_path}"
+
+		if [ ! -e "${workspace_path}" ]; then
+			copy_repo_file_to_workspace "${relative_path}"
+			continue
+		fi
+
+		if git -C "${COOKBOOK_REPOSITORY_DIR}" cat-file -e "${base_commit}:${relative_path}" 2>/dev/null; then
+			if workspace_file_matches_repo_commit "${relative_path}" "${base_commit}"; then
+				copy_repo_file_to_workspace "${relative_path}"
+			else
+				record_workspace_update_notice "Preserved local changes" "${relative_path}"
+			fi
+		else
+			record_workspace_update_notice "Skipped new upstream file because a local file already exists" "${relative_path}"
+		fi
+	done < <(git -C "${COOKBOOK_REPOSITORY_DIR}" diff --name-only -z --diff-filter=ACMRT "${base_commit}" HEAD)
+
+	while IFS= read -r -d '' relative_path; do
+		workspace_path="${COOKBOOK_WORKSPACE_DIR}/${relative_path}"
+
+		if [ ! -e "${workspace_path}" ]; then
+			continue
+		fi
+
+		if workspace_file_matches_repo_commit "${relative_path}" "${base_commit}"; then
+			rm -f "${workspace_path}"
+		else
+			record_workspace_update_notice "Kept local file that was deleted upstream" "${relative_path}"
+		fi
+	done < <(git -C "${COOKBOOK_REPOSITORY_DIR}" diff --name-only -z --diff-filter=D "${base_commit}" HEAD)
+
+	write_workspace_sync_commit
 }
 
 function init_directory() {
 	mkdir -p ${COOKBOOK_REPOSITORY_PARENT_DIR}
-	clone_cookbook_on_workspace
+	update_cookbook_repository
+
+	if [ ! -d "${COOKBOOK_WORKSPACE_DIR}" ]; then
+		sync_cookbook_workspace
+		return 0
+	fi
+
+	if [ ! -f "${WORKSPACE_SYNC_STATE_FILE}" ]; then
+		if [ -n "${COOKBOOK_REPOSITORY_PREVIOUS_HEAD}" ]; then
+			printf "%s\n" "${COOKBOOK_REPOSITORY_PREVIOUS_HEAD}" > "${WORKSPACE_SYNC_STATE_FILE}"
+		else
+			write_workspace_sync_commit
+		fi
+	fi
+
+	if [ "${DOWNLOAD_LATEST_VERSION}" = "true" ]; then
+		sync_cookbook_workspace_updates "$(read_workspace_sync_commit)"
+	fi
 }
 
 function get_tap_certificate() {
@@ -638,16 +778,18 @@ function create_conda_environment() {
 	fi
 
 	if [ "${USE_CONDA_PACK_TARBALLS}" = "true" ]; then
+		echo "TACC: CREATE_ENV_MODE env=${ENV_NAME} mode=tarball_only"
 		if timed_step "restore_conda_pack:${ENV_NAME}" restore_conda_environment_from_pack "${ENV_NAME}"; then
-			echo "TACC: ${ENV_NAME} ready from conda-pack tarball"
+			echo "TACC: CREATE_ENV_READY env=${ENV_NAME} source=tarball"
 			restored_from_tarball="true"
 		else
-			echo "TACC: ERROR - failed to restore ${ENV_NAME} from conda-pack tarball"
+			echo "TACC: CREATE_ENV_FAILED env=${ENV_NAME} source=tarball"
 			return 1
 		fi
 	fi
 
 	if [ "${restored_from_tarball}" != "true" ]; then
+		echo "TACC: CREATE_ENV_MODE env=${ENV_NAME} mode=environment_file"
 		if [ ! -f "${ENV_FILE}" ]; then
 			echo "TACC: ERROR - Environment file not found: ${ENV_FILE}"
 			exit 1
@@ -682,8 +824,9 @@ function delete_conda_environment() {
 		return 0
 	fi
 
-	echo "TACC: Removing conda environment ${env_name}"
-	conda env remove -n "${env_name}" --yes || rm -rf "${env_prefix}"
+	echo "TACC: DELETE_ENV_START env=${env_name} prefix=${env_prefix}"
+	rm -rf "${env_prefix}"
+	echo "TACC: DELETE_ENV_DONE env=${env_name} prefix=${env_prefix}"
 }
 function handle_installation() {
     if [ "${UPDATE_CONDA_ENV}" = "true" ]; then
