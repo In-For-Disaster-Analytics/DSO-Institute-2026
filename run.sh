@@ -715,7 +715,7 @@ function run_jupyter() {
 
 function port_fowarding() {
 	LOCAL_PORT=5902
-	LOGIN_NODE_COUNT=3
+	LOGIN_NODE_COUNT=2
 	TUNNEL_LOGFILE="${HOME}/.jupyter/${NODE_HOSTNAME_PREFIX}-ssh-tunnels.log"
 	local ssh_status=0
 	local login_node=""
@@ -751,7 +751,7 @@ function port_fowarding() {
 		exit 1
 	fi
 
-	JUPYTER_PUBLIC_HOST="${successful_login_node}.${NODE_HOSTNAME_DOMAIN}"
+	JUPYTER_PUBLIC_HOST="${NODE_HOSTNAME_DOMAIN}"
 	export JUPYTER_PUBLIC_HOST
 	echo "TACC: using public login host ${JUPYTER_PUBLIC_HOST}" | tee -a "${TUNNEL_LOGFILE}"
 }
