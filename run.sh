@@ -13,7 +13,7 @@ export COOKBOOK_KERNEL_DISPLAY_NAME="Python (DSO-Institute)"
 export CKAN_JUPYTER_REPO_URL="https://github.com/In-For-Disaster-Analytics/ckan-jupyter.git"
 export CKAN_JUPYTER_MARKER_VERSION="repo:${CKAN_JUPYTER_REPO_URL}"
 export USE_CONDA_PACK_TARBALLS="true"
-export ENV_PACK_SEARCH_DIRS="/corral/tacc/aci/PT2050/community/DSO-Institute-2026"
+export ENV_PACK_SEARCH_DIRS="/corral-repl/tacc/aci/PT2050/projects/PTDATAX-225"
 IS_GPU_JOB=false
 
 
