@@ -497,58 +497,219 @@ function create_jupyter_configuration {
 
 }
 
+function jupyter_port_probe() {
+	local mode="${1:-quiet}"
+
+	python - "${mode}" <<'PY'
+import socket
+import sys
+
+mode = sys.argv[1]
+sock = socket.socket()
+sock.settimeout(1)
+try:
+    sock.connect(("127.0.0.1", 5902))
+except OSError as exc:
+    if mode != "quiet":
+        print(f"TACC: JUPYTER_PORT_CHECK status=not_listening host=127.0.0.1 port=5902 error={exc.__class__.__name__}: {exc}")
+    raise SystemExit(1)
+else:
+    if mode != "quiet":
+        print("TACC: JUPYTER_PORT_CHECK status=listening host=127.0.0.1 port=5902")
+finally:
+    sock.close()
+PY
+}
+
+function jupyter_is_listening() {
+	jupyter_port_probe quiet
+}
+
+function log_port_state() {
+	local phase="$1"
+
+	if command -v ss >/dev/null 2>&1; then
+		echo "TACC: PORT_STATE phase=${phase} command=ss"
+		ss -ltnp 2>&1 | awk '$4 ~ /:5902$/ {print}' | sed 's/^/TACC: PORT_STATE /' || true
+	elif command -v netstat >/dev/null 2>&1; then
+		echo "TACC: PORT_STATE phase=${phase} command=netstat"
+		netstat -ltnp 2>&1 | awk '$4 ~ /:5902$/ {print}' | sed 's/^/TACC: PORT_STATE /' || true
+	else
+		echo "TACC: PORT_STATE phase=${phase} status=skipped reason=no_ss_or_netstat"
+	fi
+}
+
+function log_jupyter_process_state() {
+	local phase="$1"
+
+	if [ -z "${JUPYTER_PID:-}" ]; then
+		echo "TACC: JUPYTER_PROCESS phase=${phase} status=no_pid"
+		return 0
+	fi
+
+	if kill -0 "${JUPYTER_PID}" 2>/dev/null; then
+		echo "TACC: JUPYTER_PROCESS phase=${phase} pid=${JUPYTER_PID} status=running"
+		ps -p "${JUPYTER_PID}" -o pid,ppid,stat,etime,cmd 2>&1 | sed 's/^/TACC: JUPYTER_PROCESS /' || true
+	else
+		echo "TACC: JUPYTER_PROCESS phase=${phase} pid=${JUPYTER_PID} status=exited"
+	fi
+}
+
+function log_jupyter_log_tail() {
+	local phase="$1"
+	local size="missing"
+
+	if [ ! -f "${JUPYTER_LOGFILE}" ]; then
+		echo "TACC: JUPYTER_LOG phase=${phase} file=${JUPYTER_LOGFILE} status=missing"
+		return 0
+	fi
+
+	size=$(wc -c <"${JUPYTER_LOGFILE}" 2>/dev/null || echo unknown)
+	size="${size//[[:space:]]/}"
+	echo "TACC: JUPYTER_LOG phase=${phase} file=${JUPYTER_LOGFILE} bytes=${size}"
+	if [ "${size}" = "0" ]; then
+		echo "TACC: JUPYTER_LOG phase=${phase} status=empty"
+		return 0
+	fi
+
+	echo "TACC: JUPYTER_LOG phase=${phase} last_lines=120"
+	tail -n 120 "${JUPYTER_LOGFILE}" | sed 's/^/TACC: JUPYTER_LOG /' || true
+}
+
+function log_jupyter_launch_diagnostics() {
+	local phase="$1"
+	local resolved_bin=""
+	local tap_certfile_status="missing"
+	local cert_path=""
+	local cert_path_status="missing"
+
+	resolved_bin=$(command -v "${JUPYTER_BIN}" 2>/dev/null || true)
+
+	if [ -f "${TAP_CERTFILE}" ]; then
+		tap_certfile_status="present"
+		cert_path=$(cat "${TAP_CERTFILE}" 2>/dev/null || true)
+	fi
+	if [ -n "${cert_path}" ] && [ -f "${cert_path}" ]; then
+		cert_path_status="present"
+	fi
+
+	echo "TACC: JUPYTER_DIAG phase=${phase} conda_env=${CONDA_DEFAULT_ENV:-unset} conda_prefix=${CONDA_PREFIX:-unset}"
+	echo "TACC: JUPYTER_DIAG phase=${phase} bin=${JUPYTER_BIN} resolved=${resolved_bin:-missing}"
+	echo "TACC: JUPYTER_DIAG phase=${phase} config=${TAP_JUPYTER_CONFIG} config_present=$([ -f "${TAP_JUPYTER_CONFIG}" ] && echo yes || echo no)"
+	echo "TACC: JUPYTER_DIAG phase=${phase} tap_certfile=${TAP_CERTFILE} tap_certfile_status=${tap_certfile_status} cert_path_status=${cert_path_status}"
+	echo "TACC: JUPYTER_DIAG phase=${phase} logfile=${JUPYTER_LOGFILE} local_port=5902 workdir=${_tapisJobWorkingDir:-unset}"
+	"${JUPYTER_BIN}" --version 2>&1 | sed 's/^/TACC: JUPYTER_VERSION /' || true
+	jupyter --paths 2>&1 | sed 's/^/TACC: JUPYTER_PATHS /' || true
+	python - <<'PY' || true
+import importlib.util
+import sys
+
+print(f"TACC: PYTHON_DIAG executable={sys.executable}")
+print(f"TACC: PYTHON_DIAG version={sys.version.split()[0]}")
+print(f"TACC: PYTHON_DIAG prefix={sys.prefix}")
+for module_name in ["jupyter_server", "jupyterlab", "notebook", "traitlets", "tornado"]:
+    spec = importlib.util.find_spec(module_name)
+    origin = getattr(spec, "origin", "") if spec else ""
+    status = "present" if spec else "missing"
+    print(f"TACC: PYTHON_DIAG module={module_name} status={status} origin={origin}")
+PY
+}
+
+function wait_for_jupyter() {
+	local max_seconds="${1:-60}"
+	local elapsed
+
+	echo "TACC: JUPYTER_WAIT start max_seconds=${max_seconds} pid=${JUPYTER_PID:-unset}"
+	for elapsed in $(seq 1 "${max_seconds}"); do
+		if jupyter_is_listening; then
+			echo "TACC: JUPYTER_WAIT ready elapsed=${elapsed}s pid=${JUPYTER_PID:-unset}"
+			jupyter_port_probe verbose || true
+			return 0
+		fi
+
+		if [ -n "${JUPYTER_PID:-}" ] && ! kill -0 "${JUPYTER_PID}" 2>/dev/null; then
+			echo "TACC: jupyter process exited before binding port"
+			jupyter_port_probe verbose || true
+			log_jupyter_process_state "wait_exited_${elapsed}s"
+			log_port_state "wait_exited_${elapsed}s"
+			log_jupyter_log_tail "wait_exited_${elapsed}s"
+			return 1
+		fi
+
+		if [ "${elapsed}" -eq 1 ] || [ $((elapsed % 10)) -eq 0 ]; then
+			echo "TACC: JUPYTER_WAIT still_waiting elapsed=${elapsed}s pid=${JUPYTER_PID:-unset}"
+			jupyter_port_probe verbose || true
+			log_jupyter_process_state "wait_${elapsed}s"
+			log_port_state "wait_${elapsed}s"
+		fi
+
+		sleep 1
+	done
+
+	echo "TACC: JUPYTER_WAIT timeout max_seconds=${max_seconds} pid=${JUPYTER_PID:-unset}"
+	jupyter_port_probe verbose || true
+	log_jupyter_process_state "wait_timeout"
+	log_port_state "wait_timeout"
+	log_jupyter_log_tail "wait_timeout"
+	return 1
+}
+
 function run_jupyter() {
 	conda activate ${COOKBOOK_CONDA_ENV}
 	export NLTK_DATA="${HOME}/nltk_data"
 	NB_SERVERDIR=$HOME/.jupyter
 	JUPYTER_SERVER_APP="ServerApp"
 	JUPYTER_BIN="jupyter-lab"
-	JUPYTER_ARGS="--certfile=$(cat ${TAP_CERTFILE}) --config=${TAP_JUPYTER_CONFIG}"
+	if [ ! -f "${TAP_CERTFILE}" ]; then
+		echo "TACC: ERROR - TAP cert pointer is missing before jupyter launch: ${TAP_CERTFILE}"
+		exit 1
+	fi
+	JUPYTER_CERTFILE=$(cat "${TAP_CERTFILE}" 2>/dev/null || true)
+	if [ -z "${JUPYTER_CERTFILE}" ]; then
+		echo "TACC: ERROR - TAP cert pointer is empty before jupyter launch: ${TAP_CERTFILE}"
+		exit 1
+	fi
+	if [ ! -f "${JUPYTER_CERTFILE}" ]; then
+		echo "TACC: ERROR - TAP certfile referenced by ${TAP_CERTFILE} does not exist: ${JUPYTER_CERTFILE}"
+		exit 1
+	fi
+	JUPYTER_ARGS="--certfile=${JUPYTER_CERTFILE} --config=${TAP_JUPYTER_CONFIG}"
 	JUPYTER_LOGFILE=${NB_SERVERDIR}/${NODE_HOSTNAME_PREFIX}.log
 	mkdir -p ${NB_SERVERDIR}
 	touch $JUPYTER_LOGFILE
+	echo "TACC: JUPYTER_LAUNCH_PREP env=${COOKBOOK_CONDA_ENV} host=127.0.0.1 port=5902 logfile=${JUPYTER_LOGFILE}"
+	log_jupyter_launch_diagnostics "prelaunch"
 	nohup ${JUPYTER_BIN} ${JUPYTER_ARGS} &>${JUPYTER_LOGFILE} &
 	JUPYTER_PID=$!
-	sleep 5
-	# verify jupyter is listening. if not, give it one more try, then bail
-	if ! python - <<PY
-import socket
-sock = socket.socket()
-sock.settimeout(1)
-try:
-    sock.connect(("127.0.0.1", 5902))
-except OSError:
-    raise SystemExit(1)
-finally:
-    sock.close()
-PY
-	then
-		# sometimes jupyter has a bad day. give it another chance to be awesome.
+	echo "TACC: JUPYTER_LAUNCH attempt=1 pid=${JUPYTER_PID}"
+	# Verify jupyter is listening. if not, give it one more try, then bail
+	if ! wait_for_jupyter 60; then
+		log_jupyter_process_state "attempt_1_failed"
+		log_port_state "attempt_1_failed"
+		log_jupyter_log_tail "attempt_1_failed"
+		kill "${JUPYTER_PID}" 2>/dev/null || true
 		echo "TACC: first jupyter launch failed. Retrying..."
+		: >"${JUPYTER_LOGFILE}"
+		log_jupyter_launch_diagnostics "retry_prelaunch"
 		nohup ${JUPYTER_BIN} ${JUPYTER_ARGS} &>${JUPYTER_LOGFILE} &
-		sleep 5
+		JUPYTER_PID=$!
+		echo "TACC: JUPYTER_LAUNCH attempt=2 pid=${JUPYTER_PID}"
 	fi
 
-	if ! python - <<PY
-import socket
-sock = socket.socket()
-sock.settimeout(1)
-try:
-    sock.connect(("127.0.0.1", 5902))
-except OSError:
-    raise SystemExit(1)
-finally:
-    sock.close()
-PY
-	then
-		# jupyter will not be working today. sadness.
+	if ! wait_for_jupyter 60; then
+		log_jupyter_process_state "attempt_2_failed"
+		log_port_state "attempt_2_failed"
+		log_jupyter_log_tail "attempt_2_failed"
+		kill "${JUPYTER_PID}" 2>/dev/null || true
 		echo "TACC: ERROR - jupyter failed to launch"
 		echo "TACC: ERROR - this is often due to an issue in your python or conda environment, or Jupyter failing to bind its port"
-		echo "TACC: ERROR - jupyter logfile contents:"
-		cat ${JUPYTER_LOGFILE}
+		echo "TACC: ERROR - jupyter diagnostics above include binary, package, process, port, and logfile state"
 		echo "TACC: job ${SLURM_JOB_ID} execution finished at: $(date)"
 		exit 1
 	fi
+
+	echo "TACC: JUPYTER_READY pid=${JUPYTER_PID} host=127.0.0.1 port=5902 logfile=${JUPYTER_LOGFILE}"
+	log_jupyter_process_state "ready"
 
 }
 
