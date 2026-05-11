@@ -2,6 +2,9 @@
 
 These notes accompany the tutorials in `upstream-sdk/tutorials`. They are intended to help you understand the main ideas behind the Upstream platform before and during the notebook exercises.
 
+- [DSO Institute Site](https://dsoinstitute2026.pods.portals.tapis.io/)
+- [Main Upstream](https://upstream.pods.portals.tapis.io/)
+
 The tutorials are easiest to follow when you first understand how the platform is organized in the UI, and then see how the SDK works with the same concepts in Python.
 
 ## What You Should Learn
