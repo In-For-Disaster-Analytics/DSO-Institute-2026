@@ -130,6 +130,18 @@ In other words, the SDK does not replace the UI. It gives you a second way to wo
 
 [`basic-sdk-flow/01_register_campaign_station_upload.ipynb`](https://github.com/In-For-Disaster-Analytics/DSO-Institute-2026/blob/main/Day-1/01_register_campaign_station_upload.ipynb) focuses on setup and ingestion.
 
+Before you start:
+
+- make sure you can reach the Upstream service and authenticate from the notebook
+- review `data/sensors.csv` and `data/measurements.csv` so you know what will be uploaded
+- understand the difference between campaigns, stations, sensors, and measurements in the UI
+
+Expected outputs:
+
+- a campaign and station are created or reused in Upstream
+- sensor definitions and time-series measurements are uploaded
+- `outputs/flow_context.json` is saved with the campaign and station identifiers used by notebook 2
+
 As you work through it, pay attention to how the notebook:
 
 - authenticates with Upstream
@@ -143,6 +155,18 @@ The main lesson in notebook 1 is that a workflow that could be done manually in 
 ## What Notebook 2 Demonstrates
 
 [`basic-sdk-flow/02_query_visualize_spatiotemporal.ipynb`](https://github.com/In-For-Disaster-Analytics/DSO-Institute-2026/blob/main/Day-1/02_query_visualize_spatiotemporal.ipynb) focuses on retrieval and analysis.
+
+Before you start:
+
+- run notebook 1 first, or have valid campaign and station identifiers available
+- confirm that the target station has sensors and uploaded measurements
+- keep `outputs/flow_context.json` available if you want the notebook to load the previous context automatically
+
+Expected outputs:
+
+- available sensors are listed for the selected station
+- measurements are retrieved into Python for inspection and plotting
+- spatial and time-aware visualizations are displayed in the notebook
 
 As you work through it, pay attention to how the notebook:
 
