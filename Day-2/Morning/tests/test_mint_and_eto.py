@@ -3,8 +3,12 @@ from __future__ import annotations
 import pandas as pd
 
 from semantic_bridge.mapping.eto import build_eto_map_url
+from semantic_bridge.mapping.eto import build_eto_science_backbone
 from semantic_bridge.mapping.eto import build_science_backbone_from_eto_export
+from semantic_bridge.mapping.eto import build_science_backbone_payload
+from semantic_bridge.mapping.eto import map_keyword_groups_to_backbone
 from semantic_bridge.mapping.eto import map_topics_to_eto_clusters
+from semantic_bridge.mapping.eto import project_documents_onto_backbone
 from semantic_bridge.mapping.eto import recommend_eto_queries_for_topics
 from semantic_bridge.mapping.mint import _extract_records
 from semantic_bridge.mapping.mint import _normalize_mint_model_candidate
@@ -168,3 +172,69 @@ def test_map_topics_to_eto_clusters_matches_rows():
     assert mappings[0]["primary_domain"] == "Water Systems"
     assert mappings[0]["eto_matches"][0]["cluster_id"] == "1"
     assert query_recommendations[0]["subjects"] == ["groundwater", "aquifer"]
+
+
+def test_rich_eto_backbone_handles_current_field_export_shape():
+    cluster_df = pd.DataFrame(
+        [
+            {
+                "Cluster ID": "10",
+                "Cluster Title": "Groundwater compaction and aquifer systems",
+                "Cluster Summary": "Studies of aquifer compaction and land subsidence.",
+                "Most common research field": "earth science",
+                "Cluster Size": "125",
+            },
+            {
+                "Cluster ID": "11",
+                "Cluster Title": "Neural machine translation",
+                "Cluster Summary": "Computer science language modeling.",
+                "Most common research field": "computer science",
+                "Cluster Size": "90",
+            },
+        ]
+    )
+
+    backbone = build_eto_science_backbone(
+        cluster_df,
+        title_filter=["groundwater", "subsidence"],
+        prefer_ucsd_fields=True,
+    )
+    payload = build_science_backbone_payload(
+        eto_cluster_df=cluster_df,
+        title_filter=["groundwater", "subsidence"],
+    )
+
+    assert list(backbone) == ["Earth Sciences"]
+    assert backbone["Earth Sciences"]["metadata"]["n_clusters"] == 1
+    assert "Groundwater compaction and aquifer systems" in backbone["Earth Sciences"]["subdisciplines"]
+    assert "aquifer" in backbone["Earth Sciences"]["terms"]
+    assert payload["selected_layer"] == "merged"
+    assert "Earth Sciences" in payload["layers"]["merged"]
+
+
+def test_keyword_group_mapping_and_overlay_projection_use_rich_backbone():
+    backbone = {
+        "Earth Sciences": {
+            "subdisciplines": ["Hydrogeology"],
+            "terms": ["groundwater", "aquifer", "subsidence"],
+        },
+        "Social Sciences": {
+            "subdisciplines": ["Decision Science"],
+            "terms": ["policy", "decision"],
+        },
+    }
+    keyword_groups = {
+        "groundwater": ["groundwater", "aquifer"],
+        "policy": ["policy"],
+    }
+    documents = {
+        "a.txt": "Groundwater and aquifer decline can cause subsidence.",
+        "b.txt": "Policy decisions shape groundwater management.",
+    }
+
+    group_mappings = map_keyword_groups_to_backbone(keyword_groups, backbone)
+    projection = project_documents_onto_backbone(documents, keyword_groups, group_mappings)
+
+    assert group_mappings[0]["primary_domain"] == "Earth Sciences"
+    assert projection["group_totals"].set_index("group").loc["groundwater", "count"] == 3
+    assert projection["domain_totals"].iloc[0]["domain"] == "Earth Sciences"

@@ -6,16 +6,22 @@ import networkx as nx
 import plotly.graph_objects as go
 
 
+def _subdisciplines(node):
+    if isinstance(node, dict):
+        return node.get("subdisciplines") or node.get("subs") or ["General"]
+    return node
+
+
 def create_network_figure(
-    science_backbone: dict[str, list[str]],
+    science_backbone: dict[str, object],
     topic_mappings: list[dict[str, object]],
     case_study_name: str,
 ) -> tuple[nx.Graph, go.Figure]:
     graph = nx.Graph()
     for domain in science_backbone:
         graph.add_node(domain, node_type="domain")
-    for domain, subs in science_backbone.items():
-        for sub in subs:
+    for domain, node in science_backbone.items():
+        for sub in _subdisciplines(node):
             graph.add_node(sub, node_type="subdiscipline")
             graph.add_edge(domain, sub)
     for mapping in topic_mappings:
@@ -69,4 +75,3 @@ def create_network_figure(
         ),
     )
     return graph, fig
-

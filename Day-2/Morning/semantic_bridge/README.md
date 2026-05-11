@@ -268,7 +268,7 @@ Matching behavior:
 
 ### `mapping.eto`
 
-Purpose: generate ETO map queries, parse ETO exports, and map discovered topics to ETO clusters.
+Purpose: generate ETO map queries, parse ETO exports, build reusable science-backbone layers, and project topics or keyword groups onto that backbone.
 
 Key constants/functions:
 
@@ -278,12 +278,23 @@ Key constants/functions:
 - `prepare_eto_query_exports(output_dir, topics_info, keywords_per_topic=3)`
 - `load_eto_cluster_export(csv_path)`
 - `build_science_backbone_from_eto_export(cluster_df)`
+- `build_eto_science_backbone(cluster_df, ...)`
+- `materialize_ucsd_scaffold(scaffold=None)`
+- `merge_science_backbone_layers(eto_layer, base_layer)`
+- `build_science_backbone_payload(...)`
+- `selected_science_backbone(payload)`
+- `write_science_backbone_payload(payload, output_path)`
+- `read_science_backbone_payload(path)`
+- `map_keyword_groups_to_backbone(keyword_groups, backbone, ...)`
+- `project_documents_onto_backbone(documents, keyword_groups, group_mappings)`
 - `map_topics_to_eto_clusters(topics_info, cluster_df, top_matches=3)`
 
 CSV handling highlights:
 
 - Column matching is case-insensitive and flexible (`Top Discipline`, `Cluster Name`, etc.).
 - Multi-valued cells can split on `|`, `;`, `,`, or long whitespace sequences.
+- Current ETO field-oriented exports can be mapped into a UCSD-style science backbone with terms, source metadata, cluster summaries, and citations.
+- `build_science_backbone_from_eto_export` keeps the legacy `dict[str, list[str]]` shape by default; pass `rich=True` for the richer node structure.
 
 ### `mapping.mint`
 
