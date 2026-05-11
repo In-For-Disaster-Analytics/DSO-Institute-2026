@@ -256,6 +256,29 @@ function read_workspace_sync_commit() {
 	fi
 }
 
+function infer_workspace_sync_commit() {
+	local candidate_ref=""
+	local candidate_commit=""
+
+	if [ -d "${COOKBOOK_WORKSPACE_DIR}/.git" ]; then
+		for candidate_ref in "origin/${GIT_BRANCH}" "HEAD"; do
+			if candidate_commit=$(git -C "${COOKBOOK_WORKSPACE_DIR}" rev-parse --verify "${candidate_ref}" 2>/dev/null); then
+				if git -C "${COOKBOOK_REPOSITORY_DIR}" cat-file -e "${candidate_commit}^{commit}" 2>/dev/null; then
+					echo "${candidate_commit}"
+					return 0
+				fi
+			fi
+		done
+	fi
+
+	if [ -n "${COOKBOOK_REPOSITORY_PREVIOUS_HEAD}" ]; then
+		echo "${COOKBOOK_REPOSITORY_PREVIOUS_HEAD}"
+		return 0
+	fi
+
+	return 1
+}
+
 function write_workspace_sync_commit() {
 	printf "%s\n" "${COOKBOOK_REPOSITORY_CURRENT_HEAD}" > "${WORKSPACE_SYNC_STATE_FILE}"
 }
@@ -309,18 +332,42 @@ function sync_cookbook_workspace() {
 	rsync -a --exclude '.git' "${COOKBOOK_REPOSITORY_DIR}/" "${COOKBOOK_WORKSPACE_DIR}/"
 	write_workspace_sync_commit
 	rm -f "${UPDATE_AVAILABLE_FILE}"
+	echo "TACC: WORKSPACE_SYNC mode=full commit=${COOKBOOK_REPOSITORY_CURRENT_HEAD}"
+}
+
+function initialize_workspace_sync_state() {
+	local inferred_commit=""
+
+	if [ -f "${WORKSPACE_SYNC_STATE_FILE}" ]; then
+		return 0
+	fi
+
+	if inferred_commit=$(infer_workspace_sync_commit); then
+		printf "%s\n" "${inferred_commit}" > "${WORKSPACE_SYNC_STATE_FILE}"
+		echo "TACC: WORKSPACE_SYNC_STATE initialized_from=${inferred_commit}"
+		return 0
+	fi
+
+	write_workspace_sync_commit
+	echo "TACC: WORKSPACE_SYNC_STATE initialized_from=current_head_without_known_base commit=${COOKBOOK_REPOSITORY_CURRENT_HEAD}"
 }
 
 function sync_cookbook_workspace_updates() {
 	local base_commit="$1"
 	local relative_path=""
 	local workspace_path=""
+	local added_count=0
+	local updated_count=0
+	local preserved_count=0
+	local deleted_count=0
+	local skipped_count=0
 
 	if [ -z "${base_commit}" ]; then
 		return 0
 	fi
 
 	rm -f "${UPDATE_AVAILABLE_FILE}"
+	echo "TACC: WORKSPACE_SYNC mode=incremental base_commit=${base_commit} target_commit=${COOKBOOK_REPOSITORY_CURRENT_HEAD}"
 
 	# Only replace files that still match the last synced commit.
 	while IFS= read -r -d '' relative_path; do
@@ -328,17 +375,21 @@ function sync_cookbook_workspace_updates() {
 
 		if [ ! -e "${workspace_path}" ]; then
 			copy_repo_file_to_workspace "${relative_path}"
+			added_count=$((added_count + 1))
 			continue
 		fi
 
 		if git -C "${COOKBOOK_REPOSITORY_DIR}" cat-file -e "${base_commit}:${relative_path}" 2>/dev/null; then
 			if workspace_file_matches_repo_commit "${relative_path}" "${base_commit}"; then
 				copy_repo_file_to_workspace "${relative_path}"
+				updated_count=$((updated_count + 1))
 			else
 				record_workspace_update_notice "Preserved local changes" "${relative_path}"
+				preserved_count=$((preserved_count + 1))
 			fi
 		else
 			record_workspace_update_notice "Skipped new upstream file because a local file already exists" "${relative_path}"
+			skipped_count=$((skipped_count + 1))
 		fi
 	done < <(git -C "${COOKBOOK_REPOSITORY_DIR}" diff --name-only -z --diff-filter=ACMRT "${base_commit}" HEAD)
 
@@ -351,12 +402,15 @@ function sync_cookbook_workspace_updates() {
 
 		if workspace_file_matches_repo_commit "${relative_path}" "${base_commit}"; then
 			rm -f "${workspace_path}"
+			deleted_count=$((deleted_count + 1))
 		else
 			record_workspace_update_notice "Kept local file that was deleted upstream" "${relative_path}"
+			preserved_count=$((preserved_count + 1))
 		fi
 	done < <(git -C "${COOKBOOK_REPOSITORY_DIR}" diff --name-only -z --diff-filter=D "${base_commit}" HEAD)
 
 	write_workspace_sync_commit
+	echo "TACC: WORKSPACE_SYNC_RESULT added=${added_count} updated=${updated_count} deleted=${deleted_count} preserved=${preserved_count} skipped=${skipped_count}"
 }
 
 function init_directory() {
@@ -368,13 +422,7 @@ function init_directory() {
 		return 0
 	fi
 
-	if [ ! -f "${WORKSPACE_SYNC_STATE_FILE}" ]; then
-		if [ -n "${COOKBOOK_REPOSITORY_PREVIOUS_HEAD}" ]; then
-			printf "%s\n" "${COOKBOOK_REPOSITORY_PREVIOUS_HEAD}" > "${WORKSPACE_SYNC_STATE_FILE}"
-		else
-			write_workspace_sync_commit
-		fi
-	fi
+	initialize_workspace_sync_state
 
 	if [ "${DOWNLOAD_LATEST_VERSION}" = "true" ]; then
 		sync_cookbook_workspace_updates "$(read_workspace_sync_commit)"

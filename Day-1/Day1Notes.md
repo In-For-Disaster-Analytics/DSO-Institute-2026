@@ -46,6 +46,8 @@ What to learn:
 - stations connect the project structure to real monitoring locations
 - station pages bring together metadata, uploads, and sensors
 - many practical workflows begin at the station level
+ 
+![alt text](screenshots/stations.png)
 
 What to notice in a screenshot:
 
@@ -63,6 +65,8 @@ What to learn:
 - sensor information usually includes an alias, a variable name, and units
 - understanding sensors is important because the uploaded measurement columns correspond to these definitions
 
+![alt text](screenshots/Sensor.png)
+
 What to notice in a screenshot:
 
 - the sensor alias
@@ -79,6 +83,8 @@ What to learn:
 - uploads connect structured CSV files to a specific station
 - one file describes sensors and another provides time-series measurements
 - validation feedback helps identify problems before data is accepted
+  
+![alt text](screenshots/UploadInterface.png)
 
 What to notice in a screenshot:
 
@@ -96,11 +102,15 @@ What to learn:
 - filtering allows you to focus on a sensor, date range, or subset of observations
 - summary or processed views show that the platform supports analysis as well as data management
 
+![alt text](screenshots/individualSensor.png)
+
 What to notice in a screenshot:
 
 - timestamps and measurement values
 - filters or query controls
 - any table, chart, or summary panel that helps interpret the data
+
+![alt text](screenshots/timeseries.png)
 
 ## Moving From The UI To The SDK
 
@@ -115,7 +125,7 @@ In other words, the SDK does not replace the UI. It gives you a second way to wo
 
 ## What Notebook 1 Demonstrates
 
-`basic-sdk-flow/01_register_campaign_station_upload.ipynb` focuses on setup and ingestion.
+[`basic-sdk-flow/01_register_campaign_station_upload.ipynb`](https://github.com/In-For-Disaster-Analytics/DSO-Institute-2026/blob/main/Day-1/01_register_campaign_station_upload.ipynb) focuses on setup and ingestion.
 
 As you work through it, pay attention to how the notebook:
 
@@ -129,7 +139,7 @@ The main lesson in notebook 1 is that a workflow that could be done manually in 
 
 ## What Notebook 2 Demonstrates
 
-`basic-sdk-flow/02_query_visualize_spatiotemporal.ipynb` focuses on retrieval and analysis.
+[`basic-sdk-flow/02_query_visualize_spatiotemporal.ipynb`](https://github.com/In-For-Disaster-Analytics/DSO-Institute-2026/blob/main/Day-1/02_query_visualize_spatiotemporal.ipynb) focuses on retrieval and analysis.
 
 As you work through it, pay attention to how the notebook:
 
