@@ -905,10 +905,13 @@ function install_spacy_model() {
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m spacy download en_core_web_sm
 }
 function download_opera_setup_env() {
-	wget -P "${COOKBOOK_WORKSPACE_DIR}/Day-4/setup_env.py" \
+	wget -P "${COOKBOOK_WORKSPACE_DIR}/Day-3/Afternoon/setup_env.py" \
 	"https://raw.githubusercontent.com/OPERA-Cal-Val/OPERA_Applications/main/DISP/Discover/setup_env.py"
-
+	conda activate h2iUTA
 	echo "setup_env.py downloaded successfully"
+	pip install git+https://github.com/insarlab/MintPy.git
+	pip install git+https://github.com/opera-adt/disp-xr.git
+	conda deactivate 
 }
 function patch_disp_xr_python_constraint() {
     TOOLS_DIR="$1"
