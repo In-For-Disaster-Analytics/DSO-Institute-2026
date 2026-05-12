@@ -292,6 +292,61 @@ function copy_repo_file_to_workspace() {
 	cp -p "${source_path}" "${target_path}"
 }
 
+function workspace_timestamped_backup_path() {
+	local relative_path="$1"
+	local workspace_path="${COOKBOOK_WORKSPACE_DIR}/${relative_path}"
+	local workspace_dir=""
+	local filename=""
+	local filename_without_leading_dot=""
+	local base_name=""
+	local extension=""
+	local modified_epoch=""
+	local modified_stamp=""
+	local backup_path=""
+	local suffix_index=1
+
+	workspace_dir=$(dirname "${workspace_path}")
+	filename=$(basename "${workspace_path}")
+	filename_without_leading_dot="${filename#.}"
+
+	if [[ "${filename}" == .* && "${filename_without_leading_dot}" != *.* ]]; then
+		base_name="${filename}"
+	elif [[ "${filename}" == *.* ]]; then
+		base_name="${filename%.*}"
+		extension=".${filename##*.}"
+	else
+		base_name="${filename}"
+	fi
+
+	if ! modified_epoch=$(stat -c %Y "${workspace_path}" 2>/dev/null); then
+		modified_epoch=$(date +%s)
+	fi
+
+	if ! modified_stamp=$(date -u -d "@${modified_epoch}" +%Y%m%dT%H%M%SZ 2>/dev/null); then
+		modified_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+	fi
+
+	backup_path="${workspace_dir}/${base_name}${modified_stamp}${extension}"
+	while [ -e "${backup_path}" ]; do
+		backup_path="${workspace_dir}/${base_name}${modified_stamp}-${suffix_index}${extension}"
+		suffix_index=$((suffix_index + 1))
+	done
+
+	printf "%s\n" "${backup_path}"
+}
+
+function rename_workspace_file_with_mtime() {
+	local relative_path="$1"
+	local workspace_path="${COOKBOOK_WORKSPACE_DIR}/${relative_path}"
+	local backup_path=""
+	local backup_relative_path=""
+
+	backup_path=$(workspace_timestamped_backup_path "${relative_path}")
+	mv "${workspace_path}" "${backup_path}"
+	backup_relative_path="${backup_path#${COOKBOOK_WORKSPACE_DIR}/}"
+	printf "%s\n" "${backup_relative_path}"
+}
+
 function workspace_file_matches_repo_commit() {
 	local relative_path="$1"
 	local commit_ref="$2"
@@ -318,8 +373,8 @@ function record_workspace_update_notice() {
 
 	if [ ! -f "${UPDATE_AVAILABLE_FILE}" ]; then
 		cat <<'EOF' > "${UPDATE_AVAILABLE_FILE}"
-Repository updates were skipped for the files below because the local copy was changed.
-Review these files and merge any needed updates manually.
+Repository updates encountered files with local workspace changes.
+Review these notes if you need to reconcile preserved or archived copies manually.
 
 EOF
 	fi
@@ -358,9 +413,11 @@ function sync_cookbook_workspace_updates() {
 	local workspace_path=""
 	local added_count=0
 	local updated_count=0
+	local archived_count=0
 	local preserved_count=0
 	local deleted_count=0
 	local skipped_count=0
+	local archived_relative_path=""
 
 	if [ -z "${base_commit}" ]; then
 		return 0
@@ -369,7 +426,7 @@ function sync_cookbook_workspace_updates() {
 	rm -f "${UPDATE_AVAILABLE_FILE}"
 	echo "TACC: WORKSPACE_SYNC mode=incremental base_commit=${base_commit} target_commit=${COOKBOOK_REPOSITORY_CURRENT_HEAD}"
 
-	# Only replace files that still match the last synced commit.
+	# Preserve local workspace variants under timestamped names before applying upstream state.
 	while IFS= read -r -d '' relative_path; do
 		workspace_path="${COOKBOOK_WORKSPACE_DIR}/${relative_path}"
 
@@ -384,12 +441,18 @@ function sync_cookbook_workspace_updates() {
 				copy_repo_file_to_workspace "${relative_path}"
 				updated_count=$((updated_count + 1))
 			else
-				record_workspace_update_notice "Preserved local changes" "${relative_path}"
-				preserved_count=$((preserved_count + 1))
+				archived_relative_path=$(rename_workspace_file_with_mtime "${relative_path}")
+				copy_repo_file_to_workspace "${relative_path}"
+				record_workspace_update_notice "Archived local changes as ${archived_relative_path}" "${relative_path}"
+				archived_count=$((archived_count + 1))
+				updated_count=$((updated_count + 1))
 			fi
 		else
-			record_workspace_update_notice "Skipped new upstream file because a local file already exists" "${relative_path}"
-			skipped_count=$((skipped_count + 1))
+			archived_relative_path=$(rename_workspace_file_with_mtime "${relative_path}")
+			copy_repo_file_to_workspace "${relative_path}"
+			record_workspace_update_notice "Archived pre-existing local file as ${archived_relative_path} before adding upstream file" "${relative_path}"
+			archived_count=$((archived_count + 1))
+			added_count=$((added_count + 1))
 		fi
 	done < <(git -C "${COOKBOOK_REPOSITORY_DIR}" diff --name-only -z --diff-filter=ACMRT "${base_commit}" HEAD)
 
@@ -404,13 +467,15 @@ function sync_cookbook_workspace_updates() {
 			rm -f "${workspace_path}"
 			deleted_count=$((deleted_count + 1))
 		else
-			record_workspace_update_notice "Kept local file that was deleted upstream" "${relative_path}"
-			preserved_count=$((preserved_count + 1))
+			archived_relative_path=$(rename_workspace_file_with_mtime "${relative_path}")
+			record_workspace_update_notice "Archived local changes as ${archived_relative_path} before applying upstream deletion" "${relative_path}"
+			archived_count=$((archived_count + 1))
+			deleted_count=$((deleted_count + 1))
 		fi
 	done < <(git -C "${COOKBOOK_REPOSITORY_DIR}" diff --name-only -z --diff-filter=D "${base_commit}" HEAD)
 
 	write_workspace_sync_commit
-	echo "TACC: WORKSPACE_SYNC_RESULT added=${added_count} updated=${updated_count} deleted=${deleted_count} preserved=${preserved_count} skipped=${skipped_count}"
+	echo "TACC: WORKSPACE_SYNC_RESULT added=${added_count} updated=${updated_count} archived=${archived_count} deleted=${deleted_count} preserved=${preserved_count} skipped=${skipped_count}"
 }
 
 function init_directory() {
@@ -907,11 +972,7 @@ function install_spacy_model() {
 function download_opera_setup_env() {
 	wget -P "${COOKBOOK_WORKSPACE_DIR}/Day-3/Afternoon/setup_env.py" \
 	"https://raw.githubusercontent.com/OPERA-Cal-Val/OPERA_Applications/main/DISP/Discover/setup_env.py"
-	conda activate h2iUTA
-	echo "setup_env.py downloaded successfully"
-	pip install git+https://github.com/insarlab/MintPy.git
-	pip install git+https://github.com/opera-adt/disp-xr.git
-	conda deactivate 
+	
 }
 function patch_disp_xr_python_constraint() {
     TOOLS_DIR="$1"
