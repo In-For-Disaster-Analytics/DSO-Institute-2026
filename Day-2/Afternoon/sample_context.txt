@@ -1,0 +1,1 @@
+The Semantic Bridge workflow connects unstructured documents to structured scientific variables and decision components. It supports topic discovery, variable mapping, and CKAN registration so that derived outputs can be shared.
