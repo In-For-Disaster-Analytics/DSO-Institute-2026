@@ -1,14 +1,12 @@
-"""Human-readable helpers for filtering the full UCSD science backbone.
+"""Human-readable helpers for filtering and mapping the UCSD science backbone.
 
-Why this exists
----------------
-The full UCSD Map of Science is useful, but it is too broad for the Day 2
-semantic bridge visualization. These helpers keep the workflow general:
+The important design choice is:
 
-    documents -> discovered topic keywords -> filtered UCSD science backbone
+    documents/topics -> filtered science backbone -> topic/domain mappings
 
-No groundwater-specific seed list is required. The notebook can still add a
-small optional hint list later, but the default behavior is corpus-driven.
+The helpers here avoid hand-written case-study seed terms by default, but they
+still allow optional ``extra_terms`` when a corpus is sparse or when an
+instructor wants to bias a demo.
 """
 
 from __future__ import annotations
@@ -50,6 +48,13 @@ def clean_term(value: Any) -> str:
     return text.strip()
 
 
+def term_tokens(value: Any) -> set[str]:
+    """Tokenize a term or label into useful matching tokens."""
+    cleaned = clean_term(value)
+    tokens = set(re.findall(r"\b[a-z][a-z0-9\-]{2,}\b", cleaned))
+    return {token for token in tokens if token not in DEFAULT_STOPWORDS}
+
+
 def unique_in_order(values: Iterable[Any]) -> list[str]:
     """Return cleaned unique terms while keeping first-seen order."""
     seen: set[str] = set()
@@ -64,7 +69,7 @@ def unique_in_order(values: Iterable[Any]) -> list[str]:
 
 
 def document_to_text(document: Any) -> str:
-    """Extract text from the document shapes used in the Day 2 notebook."""
+    """Extract text from document shapes used in the Day 2 notebook."""
     if document is None:
         return ""
 
@@ -78,7 +83,6 @@ def document_to_text(document: Any) -> str:
                 return str(value)
         return " ".join(str(value) for value in document.values() if value is not None)
 
-    # LangChain-style objects and simple dataclasses often expose one of these.
     for attr in ("page_content", "text", "content", "body"):
         value = getattr(document, attr, None)
         if value:
@@ -88,11 +92,7 @@ def document_to_text(document: Any) -> str:
 
 
 def collect_topic_terms(topics_info: dict[str, dict[str, Any]] | None) -> list[str]:
-    """Collect terms from discovered topics.
-
-    This is the most important signal because it comes from the topic discovery
-    stage rather than from hand-written domain hints.
-    """
+    """Collect topic labels, descriptions, and keywords from discovered topics."""
     if not topics_info:
         return []
 
@@ -101,6 +101,7 @@ def collect_topic_terms(topics_info: dict[str, dict[str, Any]] | None) -> list[s
         terms.extend(topic_data.get("keywords", []) or [])
         terms.extend(topic_data.get("terms", []) or [])
         terms.append(topic_display_name(topic_data))
+        terms.append(topic_data.get("description", ""))
         terms.append(topic_id)
 
     return unique_in_order(terms)
@@ -112,12 +113,7 @@ def collect_corpus_terms(
     top_n: int = 100,
     stopwords: set[str] | None = None,
 ) -> list[str]:
-    """Extract high-frequency words and two-word phrases from the loaded corpus.
-
-    This is intentionally simple and dependency-free. It gives the science
-    backbone filter a general sense of what the documents are about without
-    requiring another API/model call.
-    """
+    """Extract high-frequency words and two-word phrases from the loaded corpus."""
     if documents is None:
         return []
 
@@ -145,11 +141,7 @@ def collect_case_terms(
     extra_terms: Iterable[str] | None = None,
     max_corpus_terms: int = 100,
 ) -> dict[str, list[str]]:
-    """Collect all terms used to filter the science backbone.
-
-    The default is document-driven. ``extra_terms`` is optional and should only
-    be used as a small hint list when the corpus is too sparse.
-    """
+    """Collect all terms used to filter the science backbone."""
     topic_terms = collect_topic_terms(topics_info)
     corpus_terms = collect_corpus_terms(documents, top_n=max_corpus_terms)
     hint_terms = unique_in_order(extra_terms or [])
@@ -165,28 +157,63 @@ def collect_case_terms(
     }
 
 
-def node_search_text(domain: str, node: dict[str, Any]) -> str:
-    """Build searchable text for one science-backbone domain."""
+def node_search_terms(domain: str, node: dict[str, Any]) -> list[str]:
+    """Return normalized searchable terms for one science-backbone node."""
     values: list[Any] = [domain]
     values.extend(node.get("subdisciplines", []) or [])
     values.extend(node.get("terms", []) or [])
     values.extend(node.get("keywords", []) or [])
-    return " | ".join(clean_term(value) for value in values if value is not None)
+    values.extend(node.get("matched_filter_terms", []) or [])
+    return unique_in_order(value for value in values if value is not None)
 
 
-def score_domain(domain: str, node: dict[str, Any], case_terms: Iterable[str]) -> tuple[int, list[str]]:
-    """Score one UCSD domain by counting case terms found in that domain node."""
-    searchable = node_search_text(domain, node)
-    matches = []
-    for term in case_terms:
-        term = clean_term(term)
-        if len(term) <= 2:
+def node_search_text(domain: str, node: dict[str, Any]) -> str:
+    """Build searchable text for one science-backbone domain."""
+    return " | ".join(node_search_terms(domain, node))
+
+
+def score_terms_against_node(
+    query_terms: Iterable[str],
+    domain: str,
+    node: dict[str, Any],
+) -> tuple[float, list[str]]:
+    """Score a term list against one science-backbone node.
+
+    This uses both phrase containment and token overlap. The previous exact
+    substring-only scoring was too brittle and often mapped every topic to the
+    same one or two domains.
+    """
+    searchable_terms = node_search_terms(domain, node)
+    searchable_text = " | ".join(searchable_terms)
+    searchable_tokens = set()
+    for value in searchable_terms:
+        searchable_tokens.update(term_tokens(value))
+
+    score = 0.0
+    matches: list[str] = []
+
+    for raw_term in query_terms:
+        term = clean_term(raw_term)
+        if len(term) <= 2 or term in DEFAULT_STOPWORDS:
             continue
-        if term in searchable:
-            matches.append(term)
 
-    matches = unique_in_order(matches)
-    return len(matches), matches
+        tokens = term_tokens(term)
+        if not tokens:
+            continue
+
+        phrase_match = term in searchable_text
+        overlap = tokens & searchable_tokens
+
+        if phrase_match:
+            score += 3.0 if " " in term else 1.5
+            matches.append(term)
+        elif overlap:
+            # Token overlap is weaker than phrase match, but it prevents
+            # obvious cases from being missed.
+            score += min(1.25, 0.35 * len(overlap))
+            matches.extend(sorted(overlap))
+
+    return score, unique_in_order(matches)
 
 
 def filter_subdisciplines(
@@ -195,17 +222,25 @@ def filter_subdisciplines(
     *,
     keep_top_n: int = 30,
 ) -> list[str]:
-    """Keep only subdisciplines that visibly match the case terms.
+    """Keep subdisciplines that visibly match case terms.
 
     If no subdiscipline labels match directly, keep a small readable sample so
-    the domain is not empty.
+    a retained domain is not empty.
     """
     terms = [clean_term(term) for term in case_terms if len(clean_term(term)) > 2]
-    scored: list[tuple[int, str]] = []
+    term_token_sets = [(term, term_tokens(term)) for term in terms]
+
+    scored: list[tuple[float, str]] = []
 
     for sub in subdisciplines or []:
         sub_clean = clean_term(sub)
-        score = sum(1 for term in terms if term in sub_clean or sub_clean in term)
+        sub_tokens = term_tokens(sub_clean)
+        score = 0.0
+        for term, tokens in term_token_sets:
+            if term in sub_clean or sub_clean in term:
+                score += 2.0
+            elif tokens & sub_tokens:
+                score += 0.5 * len(tokens & sub_tokens)
         if score > 0:
             scored.append((score, str(sub)))
 
@@ -224,13 +259,9 @@ def filter_science_backbone_for_case(
     extra_terms: Iterable[str] | None = None,
     keep_top_domains: int = 6,
     keep_top_subdisciplines: int = 30,
-    min_domain_score: int = 1,
+    min_domain_score: float = 1.0,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    """Filter the full UCSD backbone down to the current document/case study.
-
-    Returns ``(filtered_backbone, debug_info)``. The debug info is intentionally
-    notebook-friendly so students can see why domains were kept.
-    """
+    """Filter the full UCSD backbone down to the current document/case study."""
     term_groups = collect_case_terms(
         topics_info=topics_info,
         documents=documents,
@@ -238,9 +269,9 @@ def filter_science_backbone_for_case(
     )
     case_terms = term_groups["all_terms"]
 
-    scored_domains: list[tuple[int, str, dict[str, Any], list[str]]] = []
+    scored_domains: list[tuple[float, str, dict[str, Any], list[str]]] = []
     for domain, node in science_backbone.items():
-        score, matches = score_domain(domain, node, case_terms)
+        score, matches = score_terms_against_node(case_terms, domain, node)
         if score >= min_domain_score:
             kept = deepcopy(node)
             kept["subdisciplines"] = filter_subdisciplines(
@@ -248,7 +279,7 @@ def filter_science_backbone_for_case(
                 case_terms,
                 keep_top_n=keep_top_subdisciplines,
             )
-            kept["filter_score"] = score
+            kept["filter_score"] = round(score, 3)
             kept["matched_filter_terms"] = matches
             kept["source"] = kept.get("source", "UCSD Map of Science")
             scored_domains.append((score, domain, kept, matches))
@@ -263,7 +294,7 @@ def filter_science_backbone_for_case(
         "domain_scores": [
             {
                 "domain": domain,
-                "score": score,
+                "score": round(score, 3),
                 "matches": matches[:12],
                 "kept_subdisciplines": len(node.get("subdisciplines", [])),
             }
@@ -273,41 +304,97 @@ def filter_science_backbone_for_case(
     return filtered, debug
 
 
+def topic_query_terms(topic_id: str, topic_data: dict[str, Any]) -> list[str]:
+    """Collect matching terms for one topic."""
+    terms: list[Any] = []
+    terms.extend(topic_data.get("keywords", []) or [])
+    terms.extend(topic_data.get("terms", []) or [])
+    terms.append(topic_display_name(topic_data))
+    terms.append(topic_data.get("description", ""))
+    terms.append(topic_id)
+    return unique_in_order(terms)
+
+
+def rank_topic_domains(
+    topic_id: str,
+    topic_data: dict[str, Any],
+    science_backbone: dict[str, dict[str, Any]],
+    *,
+    min_score: float = 0.25,
+) -> list[dict[str, Any]]:
+    """Rank all science-backbone domains for one discovered topic."""
+    query_terms = topic_query_terms(topic_id, topic_data)
+    ranked: list[dict[str, Any]] = []
+
+    for domain, node in science_backbone.items():
+        score, matches = score_terms_against_node(query_terms, domain, node)
+        if score >= min_score:
+            ranked.append(
+                {
+                    "domain": domain,
+                    "score": round(score, 3),
+                    "matched_terms": matches,
+                }
+            )
+
+    ranked.sort(key=lambda item: (-item["score"], item["domain"].lower()))
+    return ranked
+
+
 def make_topic_mappings_from_backbone(
     topics_info: dict[str, dict[str, Any]],
     science_backbone: dict[str, dict[str, Any]],
+    *,
+    domains_per_topic: int = 3,
+    min_score: float = 0.25,
+    include_low_score_fallback: bool = True,
 ) -> list[dict[str, Any]]:
     """Map discovered topics to the filtered science backbone.
 
-    This creates the ``topic_mappings`` variable expected by
-    ``create_network_figure(science_backbone, topic_mappings, ...)``.
+    Each topic can now carry a ranked list of candidate domains, not just one
+    primary domain. This fixes the visualization problem where the topic layer
+    appears to cover only two domains even though the filtered backbone kept more.
+
+    The primary domain remains the best-scoring domain for compatibility with
+    existing notebook cells.
     """
     mappings: list[dict[str, Any]] = []
 
     for topic_id, topic_data in topics_info.items():
-        topic_terms = collect_topic_terms({topic_id: topic_data})
+        ranked = rank_topic_domains(
+            topic_id,
+            topic_data,
+            science_backbone,
+            min_score=min_score,
+        )
 
-        domain_hits = []
-        for domain, node in science_backbone.items():
-            score, matches = score_domain(domain, node, topic_terms)
-            if score > 0:
-                domain_hits.append((score, domain, matches))
+        if not ranked and include_low_score_fallback and science_backbone:
+            # Use the strongest weak match so the topic is not orphaned.
+            fallback_scores = []
+            query_terms = topic_query_terms(topic_id, topic_data)
+            for domain, node in science_backbone.items():
+                score, matches = score_terms_against_node(query_terms, domain, node)
+                fallback_scores.append((score, domain, matches))
+            fallback_scores.sort(key=lambda item: (-item[0], item[1].lower()))
+            if fallback_scores:
+                score, domain, matches = fallback_scores[0]
+                ranked = [{"domain": domain, "score": round(score, 3), "matched_terms": matches}]
 
-        domain_hits.sort(key=lambda item: (-item[0], item[1].lower()))
-
-        primary_domain = domain_hits[0][1] if domain_hits else "General"
-        secondary_domain = domain_hits[1][1] if len(domain_hits) > 1 else None
-        matched_terms = domain_hits[0][2] if domain_hits else []
+        kept_ranked = ranked[:domains_per_topic]
+        primary = kept_ranked[0] if kept_ranked else {"domain": "General", "score": 0, "matched_terms": []}
+        secondary = kept_ranked[1] if len(kept_ranked) > 1 else None
 
         mappings.append(
             {
                 "topic": topic_id,
                 "topic_label": topic_display_name(topic_data),
                 "keywords": ", ".join(topic_data.get("keywords", [])[:5]),
-                "primary_domain": primary_domain,
-                "secondary_domain": secondary_domain,
-                "matched_terms": ", ".join(matched_terms[:10]),
-                "mapping_score": domain_hits[0][0] if domain_hits else 0,
+                "primary_domain": primary["domain"],
+                "secondary_domain": secondary["domain"] if secondary else None,
+                "candidate_domains": kept_ranked,
+                "candidate_domain_labels": ", ".join(item["domain"] for item in kept_ranked),
+                "matched_terms": ", ".join(primary.get("matched_terms", [])[:10]),
+                "mapping_score": primary.get("score", 0),
             }
         )
 
@@ -322,7 +409,48 @@ def topic_mappings_table(topic_mappings: list[dict[str, Any]]) -> pd.DataFrame:
         "keywords",
         "primary_domain",
         "secondary_domain",
+        "candidate_domain_labels",
         "mapping_score",
         "matched_terms",
     ]
     return pd.DataFrame(topic_mappings).reindex(columns=columns)
+
+
+def domain_coverage_table(
+    science_backbone: dict[str, dict[str, Any]],
+    topic_mappings: list[dict[str, Any]],
+) -> pd.DataFrame:
+    """Summarize which filtered science domains are covered by topic mappings."""
+    rows = []
+    for domain, node in science_backbone.items():
+        primary_topics = []
+        any_topics = []
+
+        for mapping in topic_mappings:
+            if mapping.get("primary_domain") == domain:
+                primary_topics.append(mapping.get("topic_label") or mapping.get("topic"))
+
+            candidate_domains = {
+                item.get("domain")
+                for item in mapping.get("candidate_domains", [])
+                if isinstance(item, dict)
+            }
+            if domain in candidate_domains or mapping.get("secondary_domain") == domain:
+                any_topics.append(mapping.get("topic_label") or mapping.get("topic"))
+
+        rows.append(
+            {
+                "domain": domain,
+                "filter_score": node.get("filter_score"),
+                "matched_filter_terms": ", ".join((node.get("matched_filter_terms") or [])[:10]),
+                "primary_topic_count": len(primary_topics),
+                "candidate_topic_count": len(set(any_topics + primary_topics)),
+                "primary_topics": "; ".join(primary_topics),
+                "candidate_topics": "; ".join(sorted(set(any_topics + primary_topics))),
+            }
+        )
+
+    return pd.DataFrame(rows).sort_values(
+        ["candidate_topic_count", "primary_topic_count", "filter_score"],
+        ascending=[False, False, False],
+    )

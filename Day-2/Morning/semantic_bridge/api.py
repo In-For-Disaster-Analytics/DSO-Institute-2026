@@ -95,3 +95,12 @@ from semantic_bridge.mapping.backbone_filter import collect_topic_terms
 from semantic_bridge.mapping.backbone_filter import filter_science_backbone_for_case
 from semantic_bridge.mapping.backbone_filter import make_topic_mappings_from_backbone
 from semantic_bridge.mapping.backbone_filter import topic_mappings_table
+
+
+from semantic_bridge.mapping.backbone_filter import domain_coverage_table
+from semantic_bridge.mapping.backbone_filter import rank_topic_domains
+from semantic_bridge.mapping.backbone_filter import score_terms_against_node
+
+from semantic_bridge.viz.network import build_semantic_bridge_graph
+from semantic_bridge.viz.network import display_html_graph
+from semantic_bridge.viz.network import write_pyvis_semantic_graph
