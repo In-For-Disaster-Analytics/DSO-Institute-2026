@@ -71,8 +71,15 @@ from semantic_bridge.mapping.mint import recommend_models_for_svo_mappings
 from semantic_bridge.mapping.svo import create_svo_mappings
 from semantic_bridge.mapping.svo import deduplicate_svo_mappings
 from semantic_bridge.mapping.svo import svo_table
-from semantic_bridge.text.llm_labels import relabel_topics_with_llm
+from semantic_bridge.mapping.ucsd import UCSD_DISCIPLINE_NAMES
+from semantic_bridge.mapping.ucsd import UCSD_NET_URL
+from semantic_bridge.mapping.ucsd import build_ucsd_full_backbone
+from semantic_bridge.mapping.ucsd import fetch_ucsd_net
+from semantic_bridge.mapping.ucsd import fetch_ucsd_science_backbone
+from semantic_bridge.mapping.ucsd import load_ucsd_science_backbone
+from semantic_bridge.mapping.ucsd import parse_ucsd_net
 from semantic_bridge.text.llm_labels import improve_decision_component_readability_with_llm
+from semantic_bridge.text.llm_labels import relabel_topics_with_llm
 from semantic_bridge.text.preprocess import preprocess_documents
 from semantic_bridge.text.preprocess import preprocess_text
 from semantic_bridge.text.topics import build_topic_summary
