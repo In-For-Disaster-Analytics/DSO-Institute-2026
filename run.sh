@@ -970,9 +970,9 @@ function install_spacy_model() {
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m spacy download en_core_web_sm
 }
 function download_opera_setup_env() {
-	wget -P "${COOKBOOK_WORKSPACE_DIR}/Day-3/Afternoon/setup_env.py" \
+	mkdir -p "${COOKBOOK_WORKSPACE_DIR}/Day-3/Afternoon"
+	wget -O "${COOKBOOK_WORKSPACE_DIR}/Day-3/Afternoon/setup_env.py" \
 	"https://raw.githubusercontent.com/OPERA-Cal-Val/OPERA_Applications/main/DISP/Discover/setup_env.py"
-	
 }
 function patch_disp_xr_python_constraint() {
     TOOLS_DIR="$1"
@@ -1050,6 +1050,10 @@ function create_conda_environment() {
 		exit 1
 	fi
 
+	if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
+		download_opera_setup_env
+	fi
+
 	if [ "${USE_CONDA_PACK_TARBALLS}" = "true" ]; then
 		echo "TACC: CREATE_ENV_MODE env=${ENV_NAME} mode=tarball_only"
 		if timed_step "restore_conda_pack:${ENV_NAME}" restore_conda_environment_from_pack "${ENV_NAME}"; then
@@ -1077,7 +1081,6 @@ function create_conda_environment() {
 		fi
 
 		if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
-			download_opera_setup_env
 			timed_step "install_displacement_tools:${ENV_NAME}" install_displacement_tools "${ENV_NAME}"
 		fi
 	fi
