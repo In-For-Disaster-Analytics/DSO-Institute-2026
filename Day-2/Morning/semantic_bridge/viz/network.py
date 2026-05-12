@@ -121,7 +121,7 @@ def build_semantic_bridge_graph(
 
     Returns:
         A NetworkX Graph object with node metadata for visualization.
-    """
+
 
     Topic mappings can include ``candidate_domains``. When present, the graph
     draws lighter edges to candidate domains in addition to the primary-domain
