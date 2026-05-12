@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-
+import os
 try:
     from IPython.display import Markdown, display
 except ImportError:  # pragma: no cover - notebook-only enhancement
@@ -24,8 +24,8 @@ def _escape(text: object) -> str:
 
 
 def resolve_tutorial_dir(
-    anchor_filename: str = "semantic_bridge_cookbook.ipynb",
-    relative_fallback: str = "DSO-Institute-2026/Day-3/Morning",
+    anchor_filename: str = "2_semantic_bridge_cookbook.ipynb",
+    relative_fallback: str = os.getcwd()
 ) -> Path:
     search_roots = [Path.cwd(), *Path.cwd().parents]
     for root in search_roots:
