@@ -110,15 +110,20 @@ def collect_topic_terms(topics_info: dict[str, dict[str, Any]] | None) -> list[s
 def collect_corpus_terms(
     documents: Iterable[Any] | None,
     *,
+    processed_docs: Iterable[str] | None = None,
     top_n: int = 100,
     stopwords: set[str] | None = None,
 ) -> list[str]:
     """Extract high-frequency words and two-word phrases from the loaded corpus."""
-    if documents is None:
+    if documents is None and processed_docs is None:
         return []
 
     stop = stopwords or DEFAULT_STOPWORDS
-    text = "\n".join(document_to_text(doc) for doc in documents).lower()
+    if processed_docs:
+        text = "\n".join(str(item) for item in processed_docs if item).lower()
+    else:
+        text = "\n".join(document_to_text(doc) for doc in documents).lower()
+
     tokens = re.findall(r"\b[a-z][a-z0-9\-]{2,}\b", text)
     tokens = [token for token in tokens if token not in stop and not token.isdigit()]
 
@@ -138,12 +143,13 @@ def collect_case_terms(
     *,
     topics_info: dict[str, dict[str, Any]] | None = None,
     documents: Iterable[Any] | None = None,
+    processed_docs: Iterable[str] | None = None,
     extra_terms: Iterable[str] | None = None,
     max_corpus_terms: int = 100,
 ) -> dict[str, list[str]]:
     """Collect all terms used to filter the science backbone."""
     topic_terms = collect_topic_terms(topics_info)
-    corpus_terms = collect_corpus_terms(documents, top_n=max_corpus_terms)
+    corpus_terms = collect_corpus_terms(documents, processed_docs=processed_docs, top_n=max_corpus_terms)
     hint_terms = unique_in_order(extra_terms or [])
 
     all_terms = unique_in_order([*topic_terms, *corpus_terms, *hint_terms])
@@ -179,9 +185,16 @@ def score_terms_against_node(
 ) -> tuple[float, list[str]]:
     """Score a term list against one science-backbone node.
 
-    This uses both phrase containment and token overlap. The previous exact
-    substring-only scoring was too brittle and often mapped every topic to the
-    same one or two domains.
+    The scoring mechanism combines two strategies to ensure robust matching:
+    1. Phrase Containment: Direct matches of the query term (or multi-word phrase) 
+       within the node's text. Multi-word matches are weighted higher (3.0) than 
+       unigrams (1.5).
+    2. Token Overlap: Matches between individual words (tokens) in the query 
+       and the node. This serves as a fallback for partial matches, with 
+       diminishing returns for multiple token matches to prevent over-weighting 
+       broad categories.
+
+    Returns a tuple of (total_score, unique_matched_terms).
     """
     searchable_terms = node_search_terms(domain, node)
     searchable_text = " | ".join(searchable_terms)
@@ -256,15 +269,24 @@ def filter_science_backbone_for_case(
     *,
     topics_info: dict[str, dict[str, Any]] | None = None,
     documents: Iterable[Any] | None = None,
+    processed_docs: Iterable[str] | None = None,
     extra_terms: Iterable[str] | None = None,
     keep_top_domains: int = 6,
     keep_top_subdisciplines: int = 30,
     min_domain_score: float = 1.0,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    """Filter the full UCSD backbone down to the current document/case study."""
+    """Filter the full UCSD backbone down to the current document/case study.
+
+    This function performs an automated reduction of a large science backbone 
+    (like the 13-discipline UCSD Map of Science) to a subset relevant to the 
+    specific corpus being analyzed. It uses keywords and labels from discovered 
+    topics as well as high-frequency terms from the document text to score and 
+    rank backbone domains and subdisciplines.
+    """
     term_groups = collect_case_terms(
         topics_info=topics_info,
         documents=documents,
+        processed_docs=processed_docs,
         extra_terms=extra_terms,
     )
     case_terms = term_groups["all_terms"]

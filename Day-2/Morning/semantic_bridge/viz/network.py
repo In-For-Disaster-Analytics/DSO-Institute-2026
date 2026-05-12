@@ -100,18 +100,28 @@ def build_semantic_bridge_graph(
     science_backbone: dict[str, Any],
     topic_mappings: list[dict[str, Any]],
     *,
-    max_subdisciplines_per_domain: int = 25,
+    max_subdisciplines_per_domain: int = 15,
     include_candidate_domain_edges: bool = True,
     only_topic_linked: bool = True,
     keep_linked_domain_subdisciplines: bool = True,
 ) -> nx.Graph:
     """Build a reusable NetworkX graph for the Semantic Bridge visualization.
 
-    The graph has three node types:
+    Constructs a graph representing the relationship between discovered topics and
+    the scientific disciplines defined in the science backbone.
 
-    - discipline
-    - subdiscipline
-    - topic
+    Args:
+        science_backbone: The filtered science backbone dictionary.
+        topic_mappings: List of topic mapping records.
+        max_subdisciplines_per_domain: Limit the number of subdisciplines shown for clarity.
+        include_candidate_domain_edges: If True, draw dashed lines to secondary/candidate domains.
+        only_topic_linked: If True, remove backbone domains that have no associated topics.
+        keep_linked_domain_subdisciplines: If True, keep subdiscipline nodes for context 
+            under domains that are linked to topics.
+
+    Returns:
+        A NetworkX Graph object with node metadata for visualization.
+    """
 
     Topic mappings can include ``candidate_domains``. When present, the graph
     draws lighter edges to candidate domains in addition to the primary-domain
