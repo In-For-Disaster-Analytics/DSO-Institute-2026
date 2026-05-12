@@ -89,3 +89,9 @@ from semantic_bridge.viz.components import plot_component_distribution
 from semantic_bridge.viz.network import create_network_figure
 from semantic_bridge.viz.svo import plot_svo_sunburst
 from semantic_bridge.viz.topics import plot_topic_distribution
+from semantic_bridge.mapping.backbone_filter import collect_case_terms
+from semantic_bridge.mapping.backbone_filter import collect_corpus_terms
+from semantic_bridge.mapping.backbone_filter import collect_topic_terms
+from semantic_bridge.mapping.backbone_filter import filter_science_backbone_for_case
+from semantic_bridge.mapping.backbone_filter import make_topic_mappings_from_backbone
+from semantic_bridge.mapping.backbone_filter import topic_mappings_table
