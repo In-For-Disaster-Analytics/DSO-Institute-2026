@@ -1006,24 +1006,11 @@ function install_displacement_tools() {
 
     patch_disp_xr_python_constraint "${TOOLS_DIR}"
 
+    conda install -n "${ENV_NAME}" -c conda-forge --yes libgdal-netcdf
+
     conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir \
         "git+https://github.com/insarlab/MintPy.git"
     conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir -e "${TOOLS_DIR}/disp-xr"
-
-    conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir \
-        rasterio \
-        rioxarray \
-        asf_search \
-        opera_utils \
-        numcodecs \
-        s3fs \
-        dem_stitcher \
-        tile_mate \
-        contextily \
-        folium \
-        zarr \
-        h5netcdf \
-        h5py
 }
 
 function displacement_tools_available() {
@@ -1031,19 +1018,34 @@ function displacement_tools_available() {
 
 	conda run -n "${env_name}" python - <<'PY'
 import importlib.util
+import sys
+from pathlib import Path
 
-required_modules = ("mintpy", "disp_xr")
+required_modules = ("mintpy", "disp_xr", "rasterio")
 missing_modules = [
     module_name
     for module_name in required_modules
     if importlib.util.find_spec(module_name) is None
 ]
 
+plugin_dir = Path(sys.prefix) / "lib" / "gdalplugins"
+if not list(plugin_dir.glob("gdal_netCDF.*")):
+    missing_modules.append("gdal_netCDF_plugin")
+
+if importlib.util.find_spec("rasterio") is not None:
+    import rasterio
+
+    with rasterio.Env() as env:
+        drivers = env.drivers()
+
+    if "netCDF" not in drivers:
+        missing_modules.append("gdal_netCDF_driver")
+
 if missing_modules:
     print(f"TACC: DISPLACEMENT_TOOLS_MISSING modules={','.join(missing_modules)}")
     raise SystemExit(1)
 
-print("TACC: DISPLACEMENT_TOOLS_READY modules=mintpy,disp_xr")
+print("TACC: DISPLACEMENT_TOOLS_READY modules=mintpy,disp_xr,gdal_netCDF")
 PY
 }
 
@@ -1073,6 +1075,7 @@ kernel_env = payload.setdefault("env", {})
 
 proj_dir = env_prefix / "share" / "proj"
 gdal_dir = env_prefix / "share" / "gdal"
+gdal_plugin_dir = env_prefix / "lib" / "gdalplugins"
 
 if proj_dir.is_dir():
     kernel_env["PROJ_DATA"] = str(proj_dir)
@@ -1081,12 +1084,16 @@ if proj_dir.is_dir():
 if gdal_dir.is_dir():
     kernel_env["GDAL_DATA"] = str(gdal_dir)
 
+if gdal_plugin_dir.is_dir():
+    kernel_env["GDAL_DRIVER_PATH"] = str(gdal_plugin_dir)
+
 kernel_json.write_text(json.dumps(payload, indent=2) + "\n")
 print(
     "TACC: KERNEL_GEODATA_PATHS "
     f"kernel={kernel_json} "
     f"proj_data={kernel_env.get('PROJ_DATA', 'unset')} "
-    f"gdal_data={kernel_env.get('GDAL_DATA', 'unset')}"
+    f"gdal_data={kernel_env.get('GDAL_DATA', 'unset')} "
+    f"gdal_driver_path={kernel_env.get('GDAL_DRIVER_PATH', 'unset')}"
 )
 PY
 }
