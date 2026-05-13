@@ -1029,6 +1029,71 @@ function install_displacement_tools() {
         h5py
 }
 
+function displacement_tools_available() {
+	local env_name="$1"
+
+	conda run -n "${env_name}" python - <<'PY'
+import importlib.util
+
+required_modules = ("mintpy", "disp_xr")
+missing_modules = [
+    module_name
+    for module_name in required_modules
+    if importlib.util.find_spec(module_name) is None
+]
+
+if missing_modules:
+    print(f"TACC: DISPLACEMENT_TOOLS_MISSING modules={','.join(missing_modules)}")
+    raise SystemExit(1)
+
+print("TACC: DISPLACEMENT_TOOLS_READY modules=mintpy,disp_xr")
+PY
+}
+
+function configure_conda_kernel_geodata_paths() {
+	local env_name="$1"
+	local env_prefix="${WORK}/miniconda3/envs/${env_name}"
+	local kernel_slug
+	local kernel_json
+
+	kernel_slug=$(printf '%s' "${env_name}" | tr '[:upper:]' '[:lower:]')
+	kernel_json="${HOME}/.local/share/jupyter/kernels/${kernel_slug}/kernel.json"
+
+	if [ ! -f "${kernel_json}" ]; then
+		echo "TACC: WARNING - kernelspec JSON not found for ${env_name}: ${kernel_json}"
+		return 0
+	fi
+
+	python - "${kernel_json}" "${env_prefix}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+kernel_json = Path(sys.argv[1])
+env_prefix = Path(sys.argv[2])
+payload = json.loads(kernel_json.read_text())
+kernel_env = payload.setdefault("env", {})
+
+proj_dir = env_prefix / "share" / "proj"
+gdal_dir = env_prefix / "share" / "gdal"
+
+if proj_dir.is_dir():
+    kernel_env["PROJ_DATA"] = str(proj_dir)
+    kernel_env["PROJ_LIB"] = str(proj_dir)
+
+if gdal_dir.is_dir():
+    kernel_env["GDAL_DATA"] = str(gdal_dir)
+
+kernel_json.write_text(json.dumps(payload, indent=2) + "\n")
+print(
+    "TACC: KERNEL_GEODATA_PATHS "
+    f"kernel={kernel_json} "
+    f"proj_data={kernel_env.get('PROJ_DATA', 'unset')} "
+    f"gdal_data={kernel_env.get('GDAL_DATA', 'unset')}"
+)
+PY
+}
+
 function create_conda_environment() {
 	ENV_FILENAME="$1"
 	ENV_NAME="$2"
@@ -1071,8 +1136,12 @@ function create_conda_environment() {
 			conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir -r "${COOKBOOK_WORKSPACE_DIR}/.binder/requirements.txt"
 		fi
 
-		if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
+	fi
+
+	if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
+		if ! displacement_tools_available "${ENV_NAME}"; then
 			timed_step "install_displacement_tools:${ENV_NAME}" install_displacement_tools "${ENV_NAME}"
+			displacement_tools_available "${ENV_NAME}"
 		fi
 	fi
 
@@ -1080,6 +1149,7 @@ function create_conda_environment() {
 		--user \
 		--name "${ENV_NAME}" \
 		--display-name "Python (${ENV_NAME})"
+	configure_conda_kernel_geodata_paths "${ENV_NAME}"
 }
 
 function delete_conda_environment() {
