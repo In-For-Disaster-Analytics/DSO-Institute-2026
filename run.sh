@@ -969,11 +969,6 @@ PY
 function install_spacy_model() {
 	conda run -n "${COOKBOOK_CONDA_ENV}" python -m spacy download en_core_web_sm
 }
-function download_opera_setup_env() {
-	mkdir -p "${COOKBOOK_WORKSPACE_DIR}/Day-3/Afternoon"
-	wget -O "${COOKBOOK_WORKSPACE_DIR}/Day-3/Afternoon/setup_env.py" \
-	"https://raw.githubusercontent.com/OPERA-Cal-Val/OPERA_Applications/main/DISP/Discover/setup_env.py"
-}
 function patch_disp_xr_python_constraint() {
     TOOLS_DIR="$1"
     PYPROJECT="${TOOLS_DIR}/disp-xr/pyproject.toml"
@@ -1048,10 +1043,6 @@ function create_conda_environment() {
 	if [ -z "${ENV_NAME}" ]; then
 		echo "TACC: ERROR - No conda environment name provided"
 		exit 1
-	fi
-
-	if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
-		download_opera_setup_env
 	fi
 
 	if [ "${USE_CONDA_PACK_TARBALLS}" = "true" ]; then
