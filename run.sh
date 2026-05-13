@@ -1000,17 +1000,14 @@ function install_displacement_tools() {
 
     mkdir -p "${TOOLS_DIR}"
 
-    if [ ! -d "${TOOLS_DIR}/MintPy" ]; then
-        git clone https://github.com/insarlab/MintPy.git "${TOOLS_DIR}/MintPy"
-    fi
-
     if [ ! -d "${TOOLS_DIR}/disp-xr" ]; then
         git clone https://github.com/opera-adt/disp-xr.git "${TOOLS_DIR}/disp-xr"
     fi
 
     patch_disp_xr_python_constraint "${TOOLS_DIR}"
 
-    conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir -e "${TOOLS_DIR}/MintPy"
+    conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir \
+        "git+https://github.com/insarlab/MintPy.git"
     conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir -e "${TOOLS_DIR}/disp-xr"
 
     conda run -n "${ENV_NAME}" python -m pip install --no-cache-dir \
