@@ -179,37 +179,38 @@ function resolve_env_pack_tarball() {
 }
 
 function restore_conda_environment_from_pack() {
-	local env_name="$1"
-	local env_prefix="$WORK/miniconda3/envs/${env_name}"
+	local pack_env_name="$1"
+	local target_env_name="${2:-${pack_env_name}}"
+	local env_prefix="$WORK/miniconda3/envs/${target_env_name}"
 	local tarball_path
 	local unpack_status
 
 	if [ "${USE_CONDA_PACK_TARBALLS}" != "true" ]; then
-		echo "TACC: TARBALL_RESTORE_DISABLED env=${env_name}"
+		echo "TACC: TARBALL_RESTORE_DISABLED env=${target_env_name}"
 		return 1
 	fi
 
-	if ! tarball_path=$(resolve_env_pack_tarball "${env_name}"); then
-		echo "TACC: TARBALL_RESTORE_MISSING env=${env_name} search_dirs=${ENV_PACK_SEARCH_DIRS}"
+	if ! tarball_path=$(resolve_env_pack_tarball "${pack_env_name}"); then
+		echo "TACC: TARBALL_RESTORE_MISSING env=${target_env_name} pack_env=${pack_env_name} search_dirs=${ENV_PACK_SEARCH_DIRS}"
 		return 1
 	fi
 
 	if [ -d "${env_prefix}" ] && [ "${UPDATE_CONDA_ENV}" != "true" ]; then
-		echo "TACC: TARBALL_RESTORE_REUSE env=${env_name} prefix=${env_prefix}"
+		echo "TACC: TARBALL_RESTORE_REUSE env=${target_env_name} prefix=${env_prefix}"
 		return 0
 	fi
 
-	echo "TACC: TARBALL_RESTORE_START env=${env_name} tarball=${tarball_path} prefix=${env_prefix}"
+	echo "TACC: TARBALL_RESTORE_START env=${target_env_name} pack_env=${pack_env_name} tarball=${tarball_path} prefix=${env_prefix}"
 	rm -rf "${env_prefix}"
 	mkdir -p "${env_prefix}"
 	if ! tar -xzf "${tarball_path}" -C "${env_prefix}"; then
-		echo "TACC: TARBALL_RESTORE_EXTRACT_FAILED env=${env_name} tarball=${tarball_path}"
+		echo "TACC: TARBALL_RESTORE_EXTRACT_FAILED env=${target_env_name} pack_env=${pack_env_name} tarball=${tarball_path}"
 		rm -rf "${env_prefix}"
 		return 1
 	fi
 
 	if [ ! -x "${env_prefix}/bin/conda-unpack" ]; then
-		echo "TACC: TARBALL_RESTORE_MISSING_UNPACK env=${env_name} prefix=${env_prefix}"
+		echo "TACC: TARBALL_RESTORE_MISSING_UNPACK env=${target_env_name} prefix=${env_prefix}"
 		rm -rf "${env_prefix}"
 		return 1
 	fi
@@ -219,11 +220,11 @@ function restore_conda_environment_from_pack() {
 	unpack_status=$?
 	set -e
 	if [ "${unpack_status}" -ne 0 ]; then
-		echo "TACC: TARBALL_RESTORE_UNPACK_FAILED env=${env_name} prefix=${env_prefix} status=${unpack_status}"
+		echo "TACC: TARBALL_RESTORE_UNPACK_FAILED env=${target_env_name} prefix=${env_prefix} status=${unpack_status}"
 		rm -rf "${env_prefix}"
 		return 1
 	fi
-	echo "TACC: TARBALL_RESTORE_DONE env=${env_name} prefix=${env_prefix}"
+	echo "TACC: TARBALL_RESTORE_DONE env=${target_env_name} pack_env=${pack_env_name} prefix=${env_prefix}"
 	return 0
 }
 
@@ -1117,37 +1118,10 @@ function ensure_displacement_tools() {
 	fi
 }
 
-function ensure_h2iuta_clone_environment() {
-	local target_env_name="$1"
-	local source_env_name="h2iUTA"
-
-	if [ -z "${target_env_name}" ]; then
-		echo "TACC: ERROR - No target conda environment name provided"
-		exit 1
-	fi
-
-	if ! conda_environment_exists "${source_env_name}"; then
-		echo "TACC: ERROR - Source conda environment ${source_env_name} does not exist; cannot create ${target_env_name}"
-		return 1
-	fi
-
-	ensure_displacement_tools "${source_env_name}"
-
-	if ! conda_environment_exists "${target_env_name}"; then
-		echo "TACC: CLONE_ENV_START source=${source_env_name} target=${target_env_name}"
-		conda create -n "${target_env_name}" --clone "${source_env_name}" --yes
-		echo "TACC: CLONE_ENV_DONE source=${source_env_name} target=${target_env_name}"
-	else
-		echo "Conda environment ${target_env_name} already exists"
-	fi
-
-	ensure_displacement_tools "${target_env_name}"
-	install_conda_kernel "${target_env_name}"
-}
-
 function create_conda_environment() {
 	ENV_FILENAME="$1"
 	ENV_NAME="$2"
+	ENV_PACK_NAME="${3:-${ENV_NAME}}"
 	ENV_FILE="${COOKBOOK_WORKSPACE_DIR}/.binder/${ENV_FILENAME}"
 	local restored_from_tarball="false"
 
@@ -1162,8 +1136,8 @@ function create_conda_environment() {
 	fi
 
 	if [ "${USE_CONDA_PACK_TARBALLS}" = "true" ]; then
-		echo "TACC: CREATE_ENV_MODE env=${ENV_NAME} mode=tarball_only"
-		if timed_step "restore_conda_pack:${ENV_NAME}" restore_conda_environment_from_pack "${ENV_NAME}"; then
+		echo "TACC: CREATE_ENV_MODE env=${ENV_NAME} mode=tarball_only pack_env=${ENV_PACK_NAME}"
+		if timed_step "restore_conda_pack:${ENV_NAME}" restore_conda_environment_from_pack "${ENV_PACK_NAME}" "${ENV_NAME}"; then
 			echo "TACC: CREATE_ENV_READY env=${ENV_NAME} source=tarball"
 			restored_from_tarball="true"
 		else
@@ -1210,16 +1184,18 @@ function delete_conda_environment() {
 	echo "TACC: DELETE_ENV_DONE env=${env_name} prefix=${env_prefix}"
 }
 function handle_installation() {
+    local H2I_CONDA_ENV="werc"
+    local H2I_PACK_ENV="h2iUTA"
+
     if [ "${UPDATE_CONDA_ENV}" = "true" ]; then
         timed_step "delete_conda_environment:${COOKBOOK_CONDA_ENV}" delete_conda_environment "${COOKBOOK_CONDA_ENV}"
         timed_step "delete_conda_environment:h2iUTA" delete_conda_environment "h2iUTA"
-        timed_step "delete_conda_environment:werc" delete_conda_environment "werc"
+        timed_step "delete_conda_environment:${H2I_CONDA_ENV}" delete_conda_environment "${H2I_CONDA_ENV}"
         
-        # Build the core environment in the background, then prepare h2iUTA and clone it for werc.
+        # Build the core environment in the background, then install h2iUTA as the werc env.
         timed_step "create_conda_environment:${COOKBOOK_CONDA_ENV}" create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
-        timed_step "create_conda_environment:h2iUTA" create_conda_environment h2iUTA.yaml "h2iUTA"
+        timed_step "create_conda_environment:${H2I_CONDA_ENV}" create_conda_environment h2iUTA.yaml "${H2I_CONDA_ENV}" "${H2I_PACK_ENV}"
         wait
-        timed_step "ensure_h2iuta_clone_environment:werc" ensure_h2iuta_clone_environment "werc"
         
     else
         needs_wait=false
@@ -1231,17 +1207,15 @@ function handle_installation() {
             echo "Conda environment ${COOKBOOK_CONDA_ENV} already exists"
         fi
 
-        if ! { conda_environment_exists "h2iUTA"; } >/dev/null 2>&1; then
-            timed_step "create_conda_environment:h2iUTA" create_conda_environment h2iUTA.yaml "h2iUTA"
+        if ! { conda_environment_exists "${H2I_CONDA_ENV}"; } >/dev/null 2>&1; then
+            timed_step "create_conda_environment:${H2I_CONDA_ENV}" create_conda_environment h2iUTA.yaml "${H2I_CONDA_ENV}" "${H2I_PACK_ENV}"
         else
-            echo "Conda environment h2iUTA already exists"
+            echo "Conda environment ${H2I_CONDA_ENV} already exists"
         fi
 
         if [ "${needs_wait}" = "true" ]; then
             wait
         fi
-
-        timed_step "ensure_h2iuta_clone_environment:werc" ensure_h2iuta_clone_environment "werc"
     fi
 }
 
