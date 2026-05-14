@@ -1098,6 +1098,53 @@ print(
 PY
 }
 
+function install_conda_kernel() {
+	local env_name="$1"
+
+	conda run -n "${env_name}" python -m ipykernel install \
+		--user \
+		--name "${env_name}" \
+		--display-name "Python (${env_name})"
+	configure_conda_kernel_geodata_paths "${env_name}"
+}
+
+function ensure_displacement_tools() {
+	local env_name="$1"
+
+	if ! displacement_tools_available "${env_name}"; then
+		timed_step "install_displacement_tools:${env_name}" install_displacement_tools "${env_name}"
+		displacement_tools_available "${env_name}"
+	fi
+}
+
+function ensure_h2iuta_clone_environment() {
+	local target_env_name="$1"
+	local source_env_name="h2iUTA"
+
+	if [ -z "${target_env_name}" ]; then
+		echo "TACC: ERROR - No target conda environment name provided"
+		exit 1
+	fi
+
+	if ! conda_environment_exists "${source_env_name}"; then
+		echo "TACC: ERROR - Source conda environment ${source_env_name} does not exist; cannot create ${target_env_name}"
+		return 1
+	fi
+
+	ensure_displacement_tools "${source_env_name}"
+
+	if ! conda_environment_exists "${target_env_name}"; then
+		echo "TACC: CLONE_ENV_START source=${source_env_name} target=${target_env_name}"
+		conda create -n "${target_env_name}" --clone "${source_env_name}" --yes
+		echo "TACC: CLONE_ENV_DONE source=${source_env_name} target=${target_env_name}"
+	else
+		echo "Conda environment ${target_env_name} already exists"
+	fi
+
+	ensure_displacement_tools "${target_env_name}"
+	install_conda_kernel "${target_env_name}"
+}
+
 function create_conda_environment() {
 	ENV_FILENAME="$1"
 	ENV_NAME="$2"
@@ -1143,17 +1190,10 @@ function create_conda_environment() {
 	fi
 
 	if [ "${ENV_FILENAME}" = "h2iUTA.yaml" ]; then
-		if ! displacement_tools_available "${ENV_NAME}"; then
-			timed_step "install_displacement_tools:${ENV_NAME}" install_displacement_tools "${ENV_NAME}"
-			displacement_tools_available "${ENV_NAME}"
-		fi
+		ensure_displacement_tools "${ENV_NAME}"
 	fi
 
-	conda run -n "${ENV_NAME}" python -m ipykernel install \
-		--user \
-		--name "${ENV_NAME}" \
-		--display-name "Python (${ENV_NAME})"
-	configure_conda_kernel_geodata_paths "${ENV_NAME}"
+	install_conda_kernel "${ENV_NAME}"
 }
 
 function delete_conda_environment() {
@@ -1173,14 +1213,13 @@ function handle_installation() {
     if [ "${UPDATE_CONDA_ENV}" = "true" ]; then
         timed_step "delete_conda_environment:${COOKBOOK_CONDA_ENV}" delete_conda_environment "${COOKBOOK_CONDA_ENV}"
         timed_step "delete_conda_environment:h2iUTA" delete_conda_environment "h2iUTA"
+        timed_step "delete_conda_environment:werc" delete_conda_environment "werc"
         
-        # Launch all 3 in the background
+        # Build the core environment in the background, then prepare h2iUTA and clone it for werc.
         timed_step "create_conda_environment:${COOKBOOK_CONDA_ENV}" create_conda_environment environment.yml "${COOKBOOK_CONDA_ENV}" &
         timed_step "create_conda_environment:h2iUTA" create_conda_environment h2iUTA.yaml "h2iUTA"
-        # create_conda_environment werc.yaml "werc" 
-        
-        # Wait for all background processes to finish
         wait
+        timed_step "ensure_h2iuta_clone_environment:werc" ensure_h2iuta_clone_environment "werc"
         
     else
         needs_wait=false
@@ -1198,10 +1237,11 @@ function handle_installation() {
             echo "Conda environment h2iUTA already exists"
         fi
 
-        # create_conda_environment werc.yaml "werc"
         if [ "${needs_wait}" = "true" ]; then
             wait
         fi
+
+        timed_step "ensure_h2iuta_clone_environment:werc" ensure_h2iuta_clone_environment "werc"
     fi
 }
 
