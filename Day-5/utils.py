@@ -125,6 +125,65 @@ class CKANClient:
             json_payload=payload,
         )
 
+    def package_patch(
+        self,
+        dataset_id: str,
+        *,
+        title: str,
+        notes: str,
+        tags: list[str] | None = None,
+        private: bool = False,
+        author: str | None = None,
+        author_email: str | None = None,
+        maintainer: str | None = None,
+        maintainer_email: str | None = None,
+        license_id: str | None = None,
+        url: str | None = None,
+        version: str | None = None,
+        dataset_type: str | None = "dataset",
+        isopen: bool | None = True,
+        spatial: str | None = None,
+        temporal_coverage_start: str | None = None,
+        temporal_coverage_end: str | None = None,
+        extras: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "id": dataset_id,
+            "title": title,
+            "notes": notes,
+            "private": private,
+            "tags": [{"name": slugify(tag)} for tag in tags or [] if slugify(tag)],
+        }
+        if dataset_type:
+            payload["type"] = dataset_type
+        if isopen is not None:
+            payload["isopen"] = bool(isopen)
+
+        optional_text_fields = {
+            "author": author,
+            "author_email": author_email,
+            "maintainer": maintainer,
+            "maintainer_email": maintainer_email,
+            "license_id": license_id,
+            "url": url,
+            "version": version,
+            "spatial": spatial,
+            "temporal_coverage_start": temporal_coverage_start,
+            "temporal_coverage_end": temporal_coverage_end,
+        }
+        for key, value in optional_text_fields.items():
+            value = str(value or "").strip()
+            if value:
+                payload[key] = value
+        if extras:
+            payload["extras"] = extras
+
+        return self.action(
+            "package_patch",
+            method="POST",
+            json_payload=payload,
+        )
+
     def resource_create(
         self,
         package_id: str,
@@ -324,15 +383,41 @@ def create_output_dataset(
     temporal_coverage_end: str | None = None,
     extras: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Create the CKAN package that will hold this run's generated HTML outputs."""
+    """Create or update the CKAN package that holds the generated HTML outputs."""
     dataset_name = slugify(name)
     if not dataset_name:
         raise ValueError("Output CKAN dataset name cannot be empty.")
-    return client.package_create(
-        name=dataset_name,
+    try:
+        return client.package_create(
+            name=dataset_name,
+            title=title,
+            notes=notes,
+            owner_org=owner_org,
+            tags=tags,
+            private=private,
+            author=author,
+            author_email=author_email,
+            maintainer=maintainer,
+            maintainer_email=maintainer_email,
+            license_id=license_id,
+            url=url,
+            version=version,
+            dataset_type=dataset_type,
+            isopen=isopen,
+            spatial=spatial,
+            temporal_coverage_start=temporal_coverage_start,
+            temporal_coverage_end=temporal_coverage_end,
+            extras=extras,
+        )
+    except requests.HTTPError as exc:
+        if exc.response is None or exc.response.status_code != 409:
+            raise
+
+    existing = client.package_show(dataset_name)
+    return client.package_patch(
+        existing["id"],
         title=title,
         notes=notes,
-        owner_org=owner_org,
         tags=tags,
         private=private,
         author=author,
